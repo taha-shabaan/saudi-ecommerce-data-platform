@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prototype: Extensible Synthetic Data Engine (Entity-Attribute Model)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f8fafc; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-28">
+
+  <!-- TOP APP HEADER -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="h-9 w-9 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-lg">⚡</div>
+      <div>
+        <h1 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+          Synthetic Engine Prototype
+          <span class="text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 font-medium">Entity-Attribute Model</span>
+        </h1>
+        <p class="text-xs text-slate-400">Topological DAGs • Multi-Locale Coherence • 6 Target Resource Sinks</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 flex-wrap">
+      <button onclick="runScenario('ecommerce')" class="text-xs px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium transition">
+        🛒 E-Commerce
+      </button>
+      <button onclick="runScenario('cycle')" class="text-xs px-3 py-1.5 rounded-md bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 font-medium transition">
+        ⚠️ Circular Dependency
+      </button>
+      <button onclick="runScenario('orphans')" class="text-xs px-3 py-1.5 rounded-md bg-amber-950/60 hover:bg-amber-900/60 text-amber-300 border border-amber-800/60 font-medium transition">
+        👻 Orphan Keys (25%)
+      </button>
+      <button onclick="runScenario('noise')" class="text-xs px-3 py-1.5 rounded-md bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 border border-purple-800/60 font-medium transition">
+        🌪️ Data Noise
+      </button>
+      <button onclick="executeEngine()" class="text-xs px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-lg shadow-emerald-900/40 transition flex items-center gap-1.5">
+        <span>▶ Generate Synthetic Data</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- QUESTION STATEMENT CARD -->
+  <section class="max-w-7xl mx-auto px-6 pt-6">
+    <div class="p-4 rounded-xl bg-slate-900 border border-slate-800 text-sm text-slate-300 shadow-sm flex items-start gap-3">
+      <span class="text-emerald-400 text-lg font-bold">🎯</span>
+      <div>
+        <p class="font-semibold text-white">Prototype Question under Verification:</p>
+        <p class="text-slate-400 text-xs mt-0.5 leading-relaxed">
+          Does our generic <strong>Entity-Attribute Model</strong>, <strong>DAG Topological Execution</strong>, <strong>Row-Level Locale Binding</strong>, and multi-format <strong>Resource Sink Selection</strong> (PostgreSQL, Excel, CSV, Parquet, JSON, and Mock REST API) satisfy modern data engineering needs before building the full platform?
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- MAIN PROTOTYPE WORKSPACE -->
+  <main class="max-w-7xl mx-auto px-6 py-6 space-y-6">
+
+    <!-- TOP CONTROL ROW: Locales, Consistency Policy, & Resource Sinks -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Locales Card -->
+      <div class="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Target Locales (Multi-Country)</h2>
+          <span class="text-[10px] text-emerald-400 font-mono" id="active-locales-count">3 Selected</span>
+        </div>
+        <p class="text-xs text-slate-500">Row-level locale binding ensures consistent names, phones, and addresses per entity record.</p>
+        <div class="flex flex-wrap gap-2 pt-1" id="locales-container">
+          <!-- Rendered via JS -->
+        </div>
+      </div>
+
+      <!-- Inconsistency Policy Preset Card -->
+      <div class="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-3 lg:col-span-2">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400">Consistency & Inconsistency Policy</h2>
+          <div class="flex items-center gap-1">
+            <button onclick="setPolicyPreset('strict')" id="btn-preset-strict" class="text-xs px-2.5 py-1 rounded-md font-medium border border-slate-700 bg-slate-800 text-slate-200">Strict (0%)</button>
+            <button onclick="setPolicyPreset('mild')" id="btn-preset-mild" class="text-xs px-2.5 py-1 rounded-md font-medium border border-slate-700 bg-slate-800 text-slate-400">Mild (5%)</button>
+            <button onclick="setPolicyPreset('chaos')" id="btn-preset-chaos" class="text-xs px-2.5 py-1 rounded-md font-medium border border-slate-700 bg-slate-800 text-slate-400">Chaos (25%)</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+          <!-- Orphan Rate -->
+          <div class="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1.5">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-300 font-medium">Orphan FK Rate</span>
+              <span class="font-mono text-amber-400 font-bold" id="label-orphan-rate">0%</span>
+            </div>
+            <input type="range" min="0" max="100" value="0" id="slider-orphan-rate" oninput="updateNoisePolicy()" class="w-full accent-amber-500 h-1.5 bg-slate-800 rounded">
+            <p class="text-[10px] text-slate-500">Injects dangling keys not in parent PK pool.</p>
+          </div>
+
+          <!-- Locale Drift Rate -->
+          <div class="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1.5">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-300 font-medium">Locale Drift</span>
+              <span class="font-mono text-cyan-400 font-bold" id="label-drift-rate">0%</span>
+            </div>
+            <input type="range" min="0" max="100" value="0" id="slider-drift-rate" oninput="updateNoisePolicy()" class="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded">
+            <p class="text-[10px] text-slate-500">Cross-country attribute mixing rate.</p>
+          </div>
+
+          <!-- Format / Noise Rate -->
+          <div class="p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1.5">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-300 font-medium">Data Noise Rate</span>
+              <span class="font-mono text-purple-400 font-bold" id="label-noise-rate">0%</span>
+            </div>
+            <input type="range" min="0" max="100" value="0" id="slider-noise-rate" oninput="updateNoisePolicy()" class="w-full accent-purple-500 h-1.5 bg-slate-800 rounded">
+            <p class="text-[10px] text-slate-500">Untrimmed spaces, "N/A" sentinels, missing @.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RESOURCE SINK SELECTOR BAR (Parquet, JSON, Postgres, Excel, CSV, API) -->
+    <div class="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <span>Target Resource Sinks</span>
+            <span class="text-[10px] font-normal text-slate-400">(Select which formats & services to export)</span>
+          </h2>
+        </div>
+        <span class="text-xs text-slate-500 font-mono" id="active-sinks-count">6 Sinks Active</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" id="resource-sinks-container">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+
+    <!-- UI VARIANT CONTAINER (Switchable between Variant A, B, C via bottom bar) -->
+    <section id="ui-variant-container" class="space-y-6">
+      <!-- Dynamic rendering based on selected variant -->
+    </section>
+
+    <!-- DAG TOPOLOGICAL EXECUTION STATUS & DIAGNOSTICS -->
+    <div class="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2" id="dag-diagnostics-card">
+      <div class="flex items-center justify-between">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+          <span>Topological Resolution Plan</span>
+          <span id="dag-status-pill" class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">DAG VALID</span>
+        </h3>
+        <span class="text-xs text-slate-500 font-mono" id="dag-execution-order">users ➔ orders ➔ order_items</span>
+      </div>
+      <div id="dag-error-box" class="hidden p-3 rounded-lg bg-rose-950/60 border border-rose-800 text-rose-300 text-xs font-mono space-y-1">
+        <!-- Error diagnostic rendered here -->
+      </div>
+    </div>
+
+    <!-- GENERATED DATA RESULTS PREVIEW & EXPORT SINKS -->
+    <div class="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300">Generated Resource Artifacts</h2>
+          <span class="text-xs text-slate-500" id="generation-metrics">(0 records generated)</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+          <button onclick="setExportTab('table')" id="tab-btn-table" class="px-3 py-1 rounded font-medium bg-slate-800 text-emerald-400">Data View</button>
+          <button onclick="setExportTab('parquet')" id="tab-btn-parquet" class="px-3 py-1 rounded font-medium text-slate-400 hover:text-white">📦 Parquet</button>
+          <button onclick="setExportTab('json')" id="tab-btn-json" class="px-3 py-1 rounded font-medium text-slate-400 hover:text-white">🏷️ JSON</button>
+          <button onclick="setExportTab('sql')" id="tab-btn-sql" class="px-3 py-1 rounded font-medium text-slate-400 hover:text-white">🐘 PostgreSQL</button>
+          <button onclick="setExportTab('excel')" id="tab-btn-excel" class="px-3 py-1 rounded font-medium text-slate-400 hover:text-white">📊 Excel (.xlsx)</button>
+          <button onclick="setExportTab('csv')" id="tab-btn-csv" class="px-3 py-1 rounded font-medium text-slate-400 hover:text-white">📁 CSV (.zip)</button>
+          <button onclick="setExportTab('api')" id="tab-btn-api" class="px-3 py-1 rounded font-medium text-slate-400 hover:text-white">⚡ REST API</button>
+        </div>
+      </div>
+
+      <!-- Preview Output Container -->
+      <div id="export-preview-content" class="min-h-[280px] max-h-[440px] overflow-auto custom-scrollbar font-mono text-xs rounded-lg bg-slate-950 p-4 border border-slate-800/80 text-slate-300">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- FLOATING PROTOTYPE BOTTOM BAR (Required by UI.md) -->
+  <aside class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-2.5 rounded-full bg-slate-900/90 backdrop-blur-md border border-slate-700 shadow-2xl shadow-black text-xs font-medium">
+    <button onclick="cycleVariant(-1)" class="p-1 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition">
+      ◀
+    </button>
+    <div class="flex items-center gap-2 px-2 border-x border-slate-700">
+      <span class="text-slate-400">UI Layout Variant:</span>
+      <span id="variant-label" class="font-bold text-emerald-400 font-mono">A (Tabbed Master-Detail)</span>
+    </div>
+    <button onclick="cycleVariant(1)" class="p-1 rounded-full hover:bg-slate-800 text-slate-400 hover:text-white transition">
+      ▶
+    </button>
+    <span class="text-[10px] text-slate-500 pl-1">(Use Left / Right arrow keys)</span>
+  </aside>
+
+  <!-- ========================================================================= -->
+  <!-- ISOLATED PURE LOGIC MODULE (Can be lifted directly to backend engine) -->
+  <!-- ========================================================================= -->
+  <script>
+    /**
+     * PURE SYNTHETIC ENGINE LOGIC MODULE (Generic Entity-Attribute Architecture)
+     * Contains no DOM references, no side-effects, perfectly portable.
+     */
+    const SyntheticLogicModule = (() => {
+
+      // Available locale catalogs with culturally coherent seeds
+      const LOCALE_DATA = {
+        ar_EG: {
+          country: 'Egypt',
+          firstNames: ['Omar', 'Ahmed', 'Youssef', 'Nour', 'Fatima', 'Mariam', 'Mahmoud', 'Salma'],
+          lastNames: ['El-Sayed', 'Ibrahim', 'Kamel', 'Mansour', 'Hassan', 'Gaber', 'Soliman'],
+          cities: ['Cairo', 'Alexandria', 'Giza', 'Mansoura', 'Aswan', 'Tanta'],
+          streets: ['Tahrir St', 'El-Gomhoreya St', 'Corniche El Nil', 'Abbas El-Akkad St'],
+          phonePrefix: '+20 10',
+          currency: 'EGP'
+        },
+        en_US: {
+          country: 'United States',
+          firstNames: ['James', 'Emma', 'Liam', 'Olivia', 'Ethan', 'Sophia', 'Benjamin', 'Mia'],
+          lastNames: ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis'],
+          cities: ['New York', 'Austin', 'Seattle', 'Chicago', 'San Francisco', 'Denver'],
+          streets: ['Main St', 'Maple Ave', 'Oak Dr', 'Broadway Ave', '2nd St', 'Pine Lane'],
+          phonePrefix: '+1 555',
+          currency: 'USD'
+        },
+        de_DE: {
+          country: 'Germany',
+          firstNames: ['Lukas', 'Maximilian', 'Leon', 'Hannah', 'Mia', 'Sophie', 'Jonas', 'Anna'],
+          lastNames: ['Müller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner'],
+          cities: ['Berlin', 'Munich', 'Hamburg', 'Frankfurt', 'Stuttgart', 'Cologne'],
+          streets: ['Hauptstraße', 'Bahnhofstraße', 'Gartenweg', 'Schulstraße', 'Ringstraße'],
+          phonePrefix: '+49 170',
+          currency: 'EUR'
+        },
+        fr_FR: {
+          country: 'France',
+          firstNames: ['Gabriel', 'Léo', 'Louis', 'Emma', 'Jade', 'Louise', 'Arthur', 'Hugo'],
+          lastNames: ['Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit'],
+          cities: ['Paris', 'Lyon', 'Marseille', 'Toulouse', 'Bordeaux', 'Nice'],
+          streets: ['Rue de la Paix', 'Avenue Victor Hugo', 'Boulevard Saint-Germain', 'Rue Nationale'],
+          phonePrefix: '+33 6',
+          currency: 'EUR'
+        },
+        ar_SA: {
+          country: 'Saudi Arabia',
+          firstNames: ['Mohammed', 'Abdullah', 'Faisal', 'Sara', 'Reem', 'Nouf', 'Khalid', 'Sultan'],
+          lastNames: ['Al-Otaibi', 'Al-Ghamdi', 'Al-Shehri', 'Al-Harbi', 'Al-Dossari', 'Al-Zahrani'],
+          cities: ['Riyadh', 'Jeddah', 'Dammam', 'Mecca', 'Medina', 'Khobar'],
+          streets: ['King Fahd Rd', 'Olaya St', 'Tahlia St', 'Prince Sultan Rd'],
+          phonePrefix: '+966 50',
+          currency: 'SAR'
+        }
+      };
+
+      /**
+       * Topological Dependency Graph Resolver for Entities
+       * Detects cycles and produces valid execution sequence using Kahn's algorithm.
+       */
+      function resolveDependencies(entities) {
+        const entityNames = entities.map(e => e.name);
+        const adj = {}; // parent -> children
+        const inDegree = {}; // child -> count of distinct parent dependencies
+        const incomingEdges = {}; // child -> array of parents
+
+        entityNames.forEach(e => {
+          adj[e] = [];
+          inDegree[e] = 0;
+          incomingEdges[e] = [];
+        });
+
+        // Populate foreign key edges between entities
+        entities.forEach(entity => {
+          entity.attributes.forEach(attr => {
+            if (attr.type === 'foreign_key' && attr.fkTarget) {
+              const [parentEntity] = attr.fkTarget.split('.');
+              // Exclude intra-entity self-references from inter-entity DAG resolution
+              if (parentEntity && parentEntity !== entity.name && entityNames.includes(parentEntity)) {
+                if (!adj[parentEntity].includes(entity.name)) {
+                  adj[parentEntity].push(entity.name);
+                  inDegree[entity.name]++;
+                  incomingEdges[entity.name].push(parentEntity);
+                }
+              }
+            }
+          });
+        });
+
+        // Kahn's Algorithm
+        const queue = entityNames.filter(e => inDegree[e] === 0);
+        const order = [];
+
+        while (queue.length > 0) {
+          const current = queue.shift();
+          order.push(current);
+
+          (adj[current] || []).forEach(child => {
+            inDegree[child]--;
+            if (inDegree[child] === 0) {
+              queue.push(child);
+            }
+          });
+        }
+
+        if (order.length < entityNames.length) {
+          // Cycle detected! Trace cycle path
+          const remaining = entityNames.filter(e => !order.includes(e));
+          return {
+            isValid: false,
+            order: [],
+            cycleNodes: remaining,
+            error: `Circular dependency detected among entities: [${remaining.join(' ⇄ ')}]. Topological generation cannot proceed.`
+          };
+        }
+
+        return {
+          isValid: true,
+          order: order,
+          error: null
+        };
+      }
+
+      /**
+       * Controlled Data Noise Applicator
+       */
+      function applyDataNoise(value, generatorType, noiseRate) {
+        if (!noiseRate || Math.random() >= (noiseRate / 100)) {
+          return value;
+        }
+
+        const coin = Math.random();
+        if (coin < 0.35) {
+          // Untrimmed Whitespace
+          return `   ${value}  `;
+        } else if (coin < 0.65) {
+          // Sentinel Null representation
+          const sentinels = ['N/A', 'NULL', 'None', '-', ''];
+          return sentinels[Math.floor(Math.random() * sentinels.length)];
+        } else {
+          // Formatting corruption
+          if (generatorType === 'email') return String(value).replace('@', '_at_');
+          if (generatorType === 'phone') return String(value).replace(/\d/g, 'X');
+          if (generatorType === 'uuid') return '00000000-corrupt-uuid';
+          return `${value}_ERR#`;
+        }
+      }
+
+      /**
+       * Core Entity-Attribute Synthetic Data Generator
+       */
+      function generateDataset(schema) {
+        const { entities, locales, policy } = schema;
+        const resolution = resolveDependencies(entities);
+
+        if (!resolution.isValid) {
+          return { success: false, error: resolution.error, data: {}, pkPools: {}, executionOrder: [] };
+        }
+
+        const generatedData = {};
+        const pkPools = {}; // { "users.id": [1, 2, 3...] }
+
+        // Execute in topological order
+        resolution.order.forEach(entityName => {
+          const entity = entities.find(e => e.name === entityName);
+          const records = [];
+          const recordCount = entity.recordCount || 10;
+
+          for (let i = 0; i < recordCount; i++) {
+            const record = {};
+            
+            // 1. Determine active locale for this record (Row-Level Locale Binding)
+            const baseLocaleKey = locales[Math.floor(Math.random() * locales.length)] || 'en_US';
+            const baseLocale = LOCALE_DATA[baseLocaleKey] || LOCALE_DATA.en_US;
+
+            entity.attributes.forEach(attr => {
+              // Check if locale drift occurs for this specific attribute
+              let activeLocale = baseLocale;
+              if (policy.localeDriftRate > 0 && (Math.random() < policy.localeDriftRate / 100)) {
+                const randomLocaleKey = locales[Math.floor(Math.random() * locales.length)];
+                activeLocale = LOCALE_DATA[randomLocaleKey] || baseLocale;
+              }
+
+              let val = null;
+
+              if (attr.type === 'autoincrement') {
+                val = i + 1;
+              } else if (attr.type === 'uuid') {
+                val = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                  const r = Math.random() * 16 | 0;
+                  return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                });
+              } else if (attr.type === 'full_name') {
+                const first = activeLocale.firstNames[Math.floor(Math.random() * activeLocale.firstNames.length)];
+                const last = activeLocale.lastNames[Math.floor(Math.random() * activeLocale.lastNames.length)];
+                val = `${first} ${last}`;
+              } else if (attr.type === 'email') {
+                const cleanName = (record.name || activeLocale.firstNames[Math.floor(Math.random() * activeLocale.firstNames.length)]).toLowerCase().replace(/\s+/g, '.');
+                val = `${cleanName}${Math.floor(Math.random() * 90 + 10)}@example.${activeLocale.country.toLowerCase().slice(0, 3) || 'com'}`;
+              } else if (attr.type === 'phone') {
+                val = `${activeLocale.phonePrefix} ${Math.floor(Math.random() * 899 + 100)} ${Math.floor(Math.random() * 8999 + 1000)}`;
+              } else if (attr.type === 'street_address') {
+                val = `${Math.floor(Math.random() * 999 + 1)} ${activeLocale.streets[Math.floor(Math.random() * activeLocale.streets.length)]}`;
+              } else if (attr.type === 'city') {
+                val = activeLocale.cities[Math.floor(Math.random() * activeLocale.cities.length)];
+              } else if (attr.type === 'country') {
+                val = activeLocale.country;
+              } else if (attr.type === 'numeric_range') {
+                const min = attr.params?.min ?? 10;
+                const max = attr.params?.max ?? 500;
+                val = Math.floor(Math.random() * (max - min + 1)) + min;
+              } else if (attr.type === 'categorical') {
+                const choices = attr.params?.choices || ['Active', 'Pending', 'Archived'];
+                val = choices[Math.floor(Math.random() * choices.length)];
+              } else if (attr.type === 'date_time') {
+                const start = new Date(2025, 0, 1).getTime();
+                const end = new Date().getTime();
+                val = new Date(start + Math.random() * (end - start)).toISOString().split('T')[0];
+              } else if (attr.type === 'foreign_key') {
+                // Check for orphan injection
+                const isOrphan = policy.orphanRate > 0 && (Math.random() < policy.orphanRate / 100);
+                
+                if (isOrphan) {
+                  // Injected orphan key
+                  val = 999900 + Math.floor(Math.random() * 99);
+                } else {
+                  const pool = pkPools[attr.fkTarget];
+                  if (pool && pool.length > 0) {
+                    val = pool[Math.floor(Math.random() * pool.length)];
+                  } else {
+                    val = null; // Parent pool empty or self-reference
+                  }
+                }
+              }
+
+              // Apply controlled data noise if applicable
+              if (attr.type !== 'autoincrement' && attr.type !== 'foreign_key') {
+                val = applyDataNoise(val, attr.type, policy.noiseRate);
+              }
+
+              record[attr.name] = val;
+
+              // If primary key, store in PK pool
+              if (attr.isPrimaryKey) {
+                const poolKey = `${entityName}.${attr.name}`;
+                if (!pkPools[poolKey]) pkPools[poolKey] = [];
+                pkPools[poolKey].push(val);
+              }
+            });
+
+            records.push(record);
+          }
+
+          generatedData[entityName] = records;
+        });
+
+        return {
+          success: true,
+          error: null,
+          data: generatedData,
+          pkPools: pkPools,
+          executionOrder: resolution.order
+        };
+      }
+
+      return {
+        LOCALE_DATA,
+        resolveDependencies,
+        generateDataset
+      };
+    })();
+  </script>
+
+  <!-- ========================================================================= -->
+  <!-- UI CONTROLLER & VIEW VARIANTS -->
+  <!-- ========================================================================= -->
+  <script>
+    // State Model
+    const state = {
+      variant: 'A', // 'A' | 'B' | 'C'
+      exportTab: 'table', // 'table' | 'parquet' | 'json' | 'sql' | 'excel' | 'csv' | 'api'
+      selectedEntityIndex: 0,
+      activeLocales: ['ar_EG', 'en_US', 'de_DE'],
+      // Target Resource Sinks
+      activeSinks: {
+        postgres: true,
+        excel: true,
+        csv: true,
+        parquet: true,
+        json: true,
+        api: true
+      },
+      policy: {
+        orphanRate: 0,
+        localeDriftRate: 0,
+        noiseRate: 0
+      },
+      schema: {
+        entities: [
+          {
+            name: 'users',
+            recordCount: 6,
+            attributes: [
+              { name: 'id', type: 'autoincrement', isPrimaryKey: true, nullable: false },
+              { name: 'full_name', type: 'full_name', isPrimaryKey: false, nullable: false },
+              { name: 'email', type: 'email', isPrimaryKey: false, nullable: false },
+              { name: 'phone', type: 'phone', isPrimaryKey: false, nullable: true },
+              { name: 'city', type: 'city', isPrimaryKey: false, nullable: false },
+              { name: 'country', type: 'country', isPrimaryKey: false, nullable: false }
+            ]
+          },
+          {
+            name: 'orders',
+            recordCount: 8,
+            attributes: [
+              { name: 'id', type: 'autoincrement', isPrimaryKey: true, nullable: false },
+              { name: 'user_id', type: 'foreign_key', fkTarget: 'users.id', isPrimaryKey: false, nullable: false },
+              { name: 'order_date', type: 'date_time', isPrimaryKey: false, nullable: false },
+              { name: 'status', type: 'categorical', params: { choices: ['PENDING', 'PAID', 'SHIPPED', 'CANCELLED'] }, isPrimaryKey: false, nullable: false },
+              { name: 'total_cents', type: 'numeric_range', params: { min: 2500, max: 89000 }, isPrimaryKey: false, nullable: false }
+            ]
+          },
+          {
+            name: 'order_items',
+            recordCount: 12,
+            attributes: [
+              { name: 'id', type: 'autoincrement', isPrimaryKey: true, nullable: false },
+              { name: 'order_id', type: 'foreign_key', fkTarget: 'orders.id', isPrimaryKey: false, nullable: false },
+              { name: 'item_name', type: 'categorical', params: { choices: ['Laptop Stand', 'Mechanical Keyboard', 'USB-C Cable', 'Noise-Canceling Headphones'] }, isPrimaryKey: false, nullable: false },
+              { name: 'quantity', type: 'numeric_range', params: { min: 1, max: 4 }, isPrimaryKey: false, nullable: false }
+            ]
+          }
+        ]
+      },
+      generatedResult: null
+    };
+
+    const SINK_DEFINITIONS = [
+      { id: 'parquet', label: 'Apache Parquet', icon: '📦', ext: '.parquet', desc: 'Columnar analytical storage' },
+      { id: 'json', label: 'JSON Documents', icon: '🏷️', ext: '.json', desc: 'Structured JSON payloads' },
+      { id: 'postgres', label: 'PostgreSQL', icon: '🐘', ext: '.sql', desc: 'DDL & batched INSERT scripts' },
+      { id: 'excel', label: 'Excel Workbook', icon: '📊', ext: '.xlsx', desc: 'Multi-tab openpyxl worksheets' },
+      { id: 'csv', label: 'CSV Archive', icon: '📁', ext: '.zip', desc: 'Zipped per-entity CSV files' },
+      { id: 'api', label: 'Mock REST API', icon: '⚡', ext: 'REST', desc: 'Dynamic paginated endpoints' }
+    ];
+
+    function renderResourceSinks() {
+      const container = document.getElementById('resource-sinks-container');
+      container.innerHTML = SINK_DEFINITIONS.map(sink => {
+        const active = state.activeSinks[sink.id];
+        return `
+          <div onclick="toggleSink('${sink.id}')" class="cursor-pointer p-3 rounded-xl border transition flex flex-col justify-between ${
+            active 
+              ? 'bg-emerald-500/10 border-emerald-500/50 text-white shadow-sm' 
+              : 'bg-slate-950/60 border-slate-800 text-slate-500 hover:text-slate-300'
+          }">
+            <div class="flex items-center justify-between">
+              <span class="text-base">${sink.icon}</span>
+              <span class="text-[10px] font-mono px-1.5 py-0.5 rounded ${active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-500'}">${sink.ext}</span>
+            </div>
+            <div class="mt-2">
+              <p class="text-xs font-bold leading-tight ${active ? 'text-white' : 'text-slate-400'}">${sink.label}</p>
+              <p class="text-[9px] text-slate-500 mt-0.5 line-clamp-1">${sink.desc}</p>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const count = Object.values(state.activeSinks).filter(Boolean).length;
+      document.getElementById('active-sinks-count').textContent = `${count} Sinks Active`;
+    }
+
+    function toggleSink(sinkId) {
+      state.activeSinks[sinkId] = !state.activeSinks[sinkId];
+      renderResourceSinks();
+      renderExportPreview();
+    }
+
+    // Scenarios
+    function runScenario(type) {
+      if (type === 'ecommerce') {
+        state.schema.entities = [
+          {
+            name: 'users',
+            recordCount: 5,
+            attributes: [
+              { name: 'id', type: 'autoincrement', isPrimaryKey: true, nullable: false },
+              { name: 'name', type: 'full_name', isPrimaryKey: false, nullable: false },
+              { name: 'email', type: 'email', isPrimaryKey: false, nullable: false },
+              { name: 'phone', type: 'phone', isPrimaryKey: false, nullable: false },
+              { name: 'city', type: 'city', isPrimaryKey: false, nullable: false }
+            ]
+          },
+          {
+            name: 'orders',
+            recordCount: 7,
+            attributes: [
+              { name: 'id', type: 'autoincrement', isPrimaryKey: true, nullable: false },
+              { name: 'user_id', type: 'foreign_key', fkTarget: 'users.id', isPrimaryKey: false, nullable: false },
+              { name: 'amount', type: 'numeric_range', params: { min: 50, max: 1200 }, isPrimaryKey: false, nullable: false }
+            ]
+          },
+          {
+            name: 'order_items',
+            recordCount: 10,
+            attributes: [
+              { name: 'id', type: 'autoincrement', isPrimaryKey: true, nullable: false },
+              { name: 'order_id', type: 'foreign_key', fkTarget: 'orders.id', isPrimaryKey: false, nullable: false },
+              { name: 'sku', type: 'categorical', params: { choices: ['PROD-A', 'PROD-B', 'PROD-C'] }, isPrimaryKey: false, nullable: false }
+            ]
+          }
+        ];
+        setPolicyPreset('strict');
+      } else if (type === 'cycle') {
+        // Intentionally create circular dependency: users -> orders -> users
+        state.schema.entities = [
+          {
+            name: 'users',
+            recordCount: 4,
+            attributes: [
+              { name: 'id', type: 'autoincrement', isPrimaryKey: true, nullable: false },
+              { name: 'last_order_id', type: 'foreign_key', fkTarget: 'orders.id', isPrimaryKey: false, nullable: false }
+            ]
+          },
+          {
+            name: 'orders',
+            recordCount: 4,
+            attributes: [
+              { name: 'id', type: 'autoincrement', isPrimaryKey: true, nullable: false },
+              { name: 'user_id', type: 'foreign_key', fkTarget: 'users.id', isPrimaryKey: false, nullable: false }
+            ]
+          }
+        ];
+      } else if (type === 'orphans') {
+        runScenario('ecommerce');
+        state.policy.orphanRate = 25;
+        document.getElementById('slider-orphan-rate').value = 25;
+        updateNoisePolicy();
+      } else if (type === 'noise') {
+        runScenario('ecommerce');
+        state.policy.noiseRate = 30;
+        document.getElementById('slider-noise-rate').value = 30;
+        updateNoisePolicy();
+      }
+
+      state.selectedEntityIndex = 0;
+      renderApp();
+      executeEngine();
+    }
+
+    function toggleLocale(localeKey) {
+      if (state.activeLocales.includes(localeKey)) {
+        if (state.activeLocales.length > 1) {
+          state.activeLocales = state.activeLocales.filter(l => l !== localeKey);
+        }
+      } else {
+        state.activeLocales.push(localeKey);
+      }
+      renderLocales();
+      executeEngine();
+    }
+
+    function renderLocales() {
+      const container = document.getElementById('locales-container');
+      const allLocales = SyntheticLogicModule.LOCALE_DATA;
+      container.innerHTML = Object.keys(allLocales).map(key => {
+        const item = allLocales[key];
+        const active = state.activeLocales.includes(key);
+        return `
+          <button onclick="toggleLocale('${key}')" class="px-2.5 py-1 rounded-md text-xs font-medium border transition ${
+            active 
+              ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' 
+              : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-300'
+          }">
+            ${item.country} <span class="font-mono text-[10px] opacity-70">(${key})</span>
+          </button>
+        `;
+      }).join('');
+      document.getElementById('active-locales-count').textContent = `${state.activeLocales.length} Selected`;
+    }
+
+    function setPolicyPreset(preset) {
+      ['strict', 'mild', 'chaos'].forEach(p => {
+        const btn = document.getElementById(`btn-preset-${p}`);
+        btn.className = `text-xs px-2.5 py-1 rounded-md font-medium border ${
+          p === preset ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300' : 'border-slate-700 bg-slate-800 text-slate-400'
+        }`;
+      });
+
+      if (preset === 'strict') {
+        state.policy = { orphanRate: 0, localeDriftRate: 0, noiseRate: 0 };
+      } else if (preset === 'mild') {
+        state.policy = { orphanRate: 5, localeDriftRate: 10, noiseRate: 5 };
+      } else if (preset === 'chaos') {
+        state.policy = { orphanRate: 25, localeDriftRate: 40, noiseRate: 25 };
+      }
+
+      document.getElementById('slider-orphan-rate').value = state.policy.orphanRate;
+      document.getElementById('slider-drift-rate').value = state.policy.localeDriftRate;
+      document.getElementById('slider-noise-rate').value = state.policy.noiseRate;
+      updateNoisePolicyLabels();
+      executeEngine();
+    }
+
+    function updateNoisePolicy() {
+      state.policy.orphanRate = parseInt(document.getElementById('slider-orphan-rate').value);
+      state.policy.localeDriftRate = parseInt(document.getElementById('slider-drift-rate').value);
+      state.policy.noiseRate = parseInt(document.getElementById('slider-noise-rate').value);
+      updateNoisePolicyLabels();
+      executeEngine();
+    }
+
+    function updateNoisePolicyLabels() {
+      document.getElementById('label-orphan-rate').textContent = `${state.policy.orphanRate}%`;
+      document.getElementById('label-drift-rate').textContent = `${state.policy.localeDriftRate}%`;
+      document.getElementById('label-noise-rate').textContent = `${state.policy.noiseRate}%`;
+    }
+
+    function executeEngine() {
+      const res = SyntheticLogicModule.generateDataset({
+        entities: state.schema.entities,
+        locales: state.activeLocales,
+        policy: state.policy
+      });
+
+      state.generatedResult = res;
+
+      // Update DAG diagnostics
+      const pill = document.getElementById('dag-status-pill');
+      const orderSpan = document.getElementById('dag-execution-order');
+      const errBox = document.getElementById('dag-error-box');
+
+      if (res.success) {
+        pill.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        pill.textContent = "DAG VALID";
+        orderSpan.textContent = res.executionOrder.join(' ➔ ');
+        errBox.classList.add('hidden');
+      } else {
+        pill.className = "px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+        pill.textContent = "CYCLE ERROR";
+        orderSpan.textContent = "Generation Blocked";
+        errBox.classList.remove('hidden');
+        errBox.innerHTML = `<strong>Topological Cycle Violation:</strong> ${res.error}`;
+      }
+
+      renderExportPreview();
+    }
+
+    function setExportTab(tab) {
+      state.exportTab = tab;
+      ['table', 'parquet', 'json', 'sql', 'excel', 'csv', 'api'].forEach(t => {
+        const btn = document.getElementById(`tab-btn-${t}`);
+        if (!btn) return;
+        if (t === tab) {
+          btn.className = "px-3 py-1 rounded font-medium bg-slate-800 text-emerald-400";
+        } else {
+          btn.className = "px-3 py-1 rounded font-medium text-slate-400 hover:text-white";
+        }
+      });
+      renderExportPreview();
+    }
+
+    function renderExportPreview() {
+      const container = document.getElementById('export-preview-content');
+      const res = state.generatedResult;
+
+      if (!res || !res.success) {
+        container.innerHTML = `<div class="p-6 text-center text-slate-500 italic">No generated data available (resolve schema dependencies first).</div>`;
+        document.getElementById('generation-metrics').textContent = "(0 records generated)";
+        return;
+      }
+
+      const totalRows = Object.values(res.data).reduce((acc, rows) => acc + rows.length, 0);
+      document.getElementById('generation-metrics').textContent = `(${totalRows} records generated across ${res.executionOrder.length} entities)`;
+
+      if (state.exportTab === 'table') {
+        const activeEntity = state.schema.entities[state.selectedEntityIndex]?.name || res.executionOrder[0];
+        const rows = res.data[activeEntity] || [];
+
+        if (rows.length === 0) {
+          container.innerHTML = `<div class="p-4 text-slate-500">No records for entity ${activeEntity}</div>`;
+          return;
+        }
+
+        const headers = Object.keys(rows[0]);
+        let html = `
+          <div class="mb-3 flex items-center justify-between">
+            <span class="text-xs text-slate-400 font-sans">Active Entity: <strong class="text-white">${activeEntity}</strong> (${rows.length} records)</span>
+            <div class="flex gap-1">
+              ${res.executionOrder.map((e, idx) => `
+                <button onclick="selectEntityByName('${e}')" class="px-2 py-0.5 rounded text-[11px] ${e === activeEntity ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800 text-slate-400'}">${e}</button>
+              `).join('')}
+            </div>
+          </div>
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 bg-slate-900/60">
+                ${headers.map(h => `<th class="py-2 px-3">${h}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map((r, i) => `
+                <tr class="border-b border-slate-900 hover:bg-slate-900/40">
+                  ${headers.map(h => {
+                    const val = r[h];
+                    const isOrphan = h.endsWith('_id') && typeof val === 'number' && val >= 999900;
+                    return `<td class="py-1.5 px-3 ${isOrphan ? 'text-amber-400 font-bold bg-amber-950/20' : ''}">${val ?? '<span class="text-slate-600">NULL</span>'}</td>`;
+                  }).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        container.innerHTML = html;
+
+      } else if (state.exportTab === 'parquet') {
+        let parquetDoc = `// ==========================================================\n// APACHE PARQUET COLUMNAR SINK METADATA & SCHEMA INSPECTOR\n// Engine: PyArrow / fastparquet (Snappy compressed)\n// ==========================================================\n\n`;
+
+        res.executionOrder.forEach(entityName => {
+          const entity = state.schema.entities.find(e => e.name === entityName);
+          const rows = res.data[entityName] || [];
+          parquetDoc += `File: "${entityName}.parquet" (${rows.length} records, 1 RowGroup, Compression: SNAPPY)\n`;
+          parquetDoc += `Schema:\n`;
+          entity.attributes.forEach(attr => {
+            let pqType = 'BYTE_ARRAY (UTF8)';
+            if (attr.type === 'autoincrement' || attr.type === 'numeric_range') pqType = 'INT64';
+            else if (attr.type === 'date_time') pqType = 'INT32 (DATE)';
+            else if (attr.type === 'foreign_key') pqType = 'INT64';
+            parquetDoc += `  - ${attr.name.padEnd(16)} : ${pqType} [${attr.nullable ? 'OPTIONAL' : 'REQUIRED'}]\n`;
+          });
+          parquetDoc += `Estimated serialized size: ~${Math.max(1, Math.round(rows.length * 0.18))} KB\n\n`;
+        });
+
+        container.innerHTML = `<pre class="text-cyan-300 font-mono text-[11px] leading-relaxed whitespace-pre">${escapeHtml(parquetDoc)}</pre>`;
+
+      } else if (state.exportTab === 'json') {
+        container.innerHTML = `<pre class="text-amber-200 font-mono text-[11px] leading-relaxed whitespace-pre">${escapeHtml(JSON.stringify(res.data, null, 2))}</pre>`;
+
+      } else if (state.exportTab === 'sql') {
+        let sql = `-- ==========================================================\n-- SYNTHETIC DATA ENGINE EXPORT SINK: PostgreSQL DDL & DML\n-- Generated in valid topological foreign-key order\n-- ==========================================================\n\n`;
+
+        res.executionOrder.forEach(entityName => {
+          const entity = state.schema.entities.find(e => e.name === entityName);
+          sql += `CREATE TABLE IF NOT EXISTS "${entityName}" (\n`;
+          const colDefs = entity.attributes.map(attr => {
+            let typeStr = 'VARCHAR(255)';
+            if (attr.type === 'autoincrement') typeStr = 'SERIAL PRIMARY KEY';
+            else if (attr.type === 'numeric_range') typeStr = 'INTEGER';
+            else if (attr.type === 'date_time') typeStr = 'DATE';
+            else if (attr.type === 'foreign_key') {
+              const [pEntity, pCol] = (attr.fkTarget || '').split('.');
+              typeStr = `INTEGER REFERENCES "${pEntity}"("${pCol}")`;
+            }
+            return `  "${attr.name}" ${typeStr}${attr.nullable ? '' : ' NOT NULL'}`;
+          });
+          sql += colDefs.join(',\n') + '\n);\n\n';
+
+          const rows = res.data[entityName] || [];
+          if (rows.length > 0) {
+            const cols = Object.keys(rows[0]);
+            sql += `INSERT INTO "${entityName}" ("${cols.join('", "')}") VALUES\n`;
+            const valueLines = rows.map(r => {
+              const vals = cols.map(c => {
+                const v = r[c];
+                if (v === null || v === undefined) return 'NULL';
+                if (typeof v === 'number') return v;
+                return `'${String(v).replace(/'/g, "''")}'`;
+              });
+              return `  (${vals.join(', ')})`;
+            });
+            sql += valueLines.join(',\n') + ';\n\n';
+          }
+        });
+
+        container.innerHTML = `<pre class="text-emerald-300 font-mono text-[11px] leading-relaxed whitespace-pre">${escapeHtml(sql)}</pre>`;
+
+      } else if (state.exportTab === 'excel') {
+        let xlDoc = `// ==========================================================\n// MULTI-TAB EXCEL WORKBOOK SINK (.xlsx)\n// Engine: openpyxl (write_only=True memory streaming)\n// ==========================================================\n\n`;
+        res.executionOrder.forEach(entityName => {
+          const rows = res.data[entityName] || [];
+          xlDoc += `Worksheet: "${entityName}" (${rows.length} rows, Sheet Index: ${res.executionOrder.indexOf(entityName) + 1})\n`;
+          if (rows.length > 0) {
+            xlDoc += `Columns: [ ${Object.keys(rows[0]).join(', ')} ]\n`;
+          }
+          xlDoc += `Status: Ready for streaming packaging\n\n`;
+        });
+        container.innerHTML = `<pre class="text-emerald-400 font-mono text-[11px] leading-relaxed whitespace-pre">${escapeHtml(xlDoc)}</pre>`;
+
+      } else if (state.exportTab === 'csv') {
+        let csvDoc = `// ==========================================================\n// CSV ARCHIVE SINK (.csv / .zip)\n// Archive: synthetic_dataset_${new Date().toISOString().split('T')[0]}.zip\n// ==========================================================\n\n`;
+        res.executionOrder.forEach(entityName => {
+          const rows = res.data[entityName] || [];
+          csvDoc += `Entry: "${entityName}.csv"\n`;
+          if (rows.length > 0) {
+            const cols = Object.keys(rows[0]);
+            csvDoc += `  Header: ${cols.join(',')}\n`;
+            csvDoc += `  Sample Row 1: ${cols.map(c => `"${rows[0][c]}"`).join(',')}\n`;
+          }
+          csvDoc += `  Total Entries: ${rows.length}\n\n`;
+        });
+        container.innerHTML = `<pre class="text-amber-300 font-mono text-[11px] leading-relaxed whitespace-pre">${escapeHtml(csvDoc)}</pre>`;
+
+      } else if (state.exportTab === 'api') {
+        const schemaId = 'sch_a1b2c3d4';
+        let apiDoc = `// DYNAMIC MOCK REST API (DuckDB Backed)\n// Base URL: http://localhost:8000/api/v1/mock/${schemaId}\n\n`;
+        apiDoc += `// 1. Schema Catalog Endpoint:\nGET /api/v1/mock/${schemaId}\nResponse 200 OK:\n`;
+        apiDoc += JSON.stringify({
+          schema_id: schemaId,
+          entities: res.executionOrder.map(e => ({ name: e, record_count: (res.data[e] || []).length }))
+        }, null, 2);
+
+        apiDoc += `\n\n// 2. Dynamic Entity Pagination Route:\nGET /api/v1/mock/${schemaId}/orders?limit=3&offset=0\nResponse 200 OK:\n`;
+        const sampleRows = (res.data['orders'] || []).slice(0, 3);
+        apiDoc += JSON.stringify({
+          data: sampleRows,
+          pagination: {
+            total_records: (res.data['orders'] || []).length,
+            limit: 3,
+            offset: 0,
+            has_more: (res.data['orders'] || []).length > 3
+          }
+        }, null, 2);
+
+        container.innerHTML = `<pre class="text-cyan-300 font-mono text-[11px] leading-relaxed whitespace-pre">${escapeHtml(apiDoc)}</pre>`;
+      }
+    }
+
+    function selectEntityByName(name) {
+      const idx = state.schema.entities.findIndex(e => e.name === name);
+      if (idx !== -1) {
+        state.selectedEntityIndex = idx;
+        renderApp();
+      }
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // UI VARIANT RENDERING (A, B, C as required by UI.md)
+    function renderApp() {
+      const container = document.getElementById('ui-variant-container');
+      const label = document.getElementById('variant-label');
+
+      if (state.variant === 'A') {
+        label.textContent = "A (Tabbed Master-Detail)";
+        renderVariantA(container);
+      } else if (state.variant === 'B') {
+        label.textContent = "B (Relational Entity Canvas)";
+        renderVariantB(container);
+      } else if (state.variant === 'C') {
+        label.textContent = "C (Compact Streamlined Matrix)";
+        renderVariantC(container);
+      }
+    }
+
+    // VARIANT A: Master-Detail Layout (Entity-Attribute)
+    function renderVariantA(container) {
+      const activeEntity = state.schema.entities[state.selectedEntityIndex] || state.schema.entities[0];
+      container.innerHTML = `
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <!-- Entities Sidebar -->
+          <div class="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Entities (${state.schema.entities.length})</h3>
+              <button onclick="promptAddEntity()" class="text-xs px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold">+ Entity</button>
+            </div>
+            <div class="space-y-1.5">
+              ${state.schema.entities.map((ent, i) => `
+                <div onclick="selectEntity(${i})" class="cursor-pointer p-2.5 rounded-lg border transition flex items-center justify-between ${
+                  i === state.selectedEntityIndex 
+                    ? 'bg-emerald-500/10 border-emerald-500/50 text-white' 
+                    : 'bg-slate-950/60 border-slate-800/80 text-slate-400 hover:text-slate-200'
+                }">
+                  <div>
+                    <p class="text-xs font-bold font-mono">${ent.name}</p>
+                    <p class="text-[10px] text-slate-500">${ent.attributes.length} attributes • ${ent.recordCount} records</p>
+                  </div>
+                  <span class="text-xs opacity-50">❯</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+
+          <!-- Active Entity Inspector -->
+          <div class="lg:col-span-3 p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3 class="text-sm font-bold text-white font-mono flex items-center gap-2">
+                  <span>Entity: ${activeEntity.name}</span>
+                </h3>
+                <p class="text-xs text-slate-400">Configure target record volume and attribute generators</p>
+              </div>
+              <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2">
+                  <label class="text-xs text-slate-400">Records:</label>
+                  <input type="number" min="1" max="10000" value="${activeEntity.recordCount}" onchange="setEntityRecordCount(${state.selectedEntityIndex}, this.value)" class="w-20 px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs font-mono text-white text-right">
+                </div>
+                <button onclick="promptAddAttribute(${state.selectedEntityIndex})" class="text-xs px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-medium">
+                  + Add Attribute
+                </button>
+              </div>
+            </div>
+
+            <!-- Attributes Table -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead>
+                  <tr class="border-b border-slate-800 text-slate-400">
+                    <th class="py-2 px-3">Attribute Name</th>
+                    <th class="py-2 px-3">Generator Type</th>
+                    <th class="py-2 px-3">Primary Key</th>
+                    <th class="py-2 px-3">Relationship Target</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60 font-mono">
+                  ${activeEntity.attributes.map((attr, attrIdx) => `
+                    <tr>
+                      <td class="py-2.5 px-3 font-semibold text-white">${attr.name}</td>
+                      <td class="py-2.5 px-3">
+                        <span class="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 text-[11px] border border-slate-700">${attr.type}</span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        ${attr.isPrimaryKey ? '<span class="text-amber-400 font-bold">🔑 PK</span>' : '<span class="text-slate-600">-</span>'}
+                      </td>
+                      <td class="py-2.5 px-3 text-slate-400">
+                        ${attr.fkTarget ? `<span class="text-emerald-400 font-semibold">➔ ${attr.fkTarget}</span>` : '<span class="text-slate-600">None</span>'}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // VARIANT B: Relational Entity Card Canvas Layout
+    function renderVariantB(container) {
+      container.innerHTML = `
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-slate-400">Visual Entity Canvas (Shows entities as distinct relational cards with FK dependency flows)</span>
+            <button onclick="promptAddEntity()" class="text-xs px-3 py-1 rounded bg-emerald-600 text-white font-bold">+ New Entity Card</button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${state.schema.entities.map((ent, i) => `
+              <div class="p-4 rounded-xl bg-slate-900 border ${i === state.selectedEntityIndex ? 'border-emerald-500 ring-1 ring-emerald-500/40' : 'border-slate-800'} space-y-3 shadow-lg">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div class="flex items-center gap-2">
+                    <span class="text-emerald-400 font-bold text-sm">🗄️</span>
+                    <span class="font-bold text-white font-mono text-sm">${ent.name}</span>
+                  </div>
+                  <span class="text-xs font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">${ent.recordCount} records</span>
+                </div>
+                <div class="space-y-1.5 font-mono text-xs">
+                  ${ent.attributes.map(attr => `
+                    <div class="flex items-center justify-between p-1.5 rounded bg-slate-950/70 border border-slate-800/60">
+                      <div class="flex items-center gap-1.5">
+                        ${attr.isPrimaryKey ? '<span class="text-amber-400 text-[10px]">🔑</span>' : '<span class="text-slate-600 text-[10px]">•</span>'}
+                        <span class="text-slate-200">${attr.name}</span>
+                      </div>
+                      <div class="text-[10px]">
+                        ${attr.fkTarget ? `<span class="text-emerald-400">➔ ${attr.fkTarget}</span>` : `<span class="text-slate-500">${attr.type}</span>`}
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // VARIANT C: High-Density Unified Matrix
+    function renderVariantC(container) {
+      container.innerHTML = `
+        <div class="p-5 rounded-xl bg-slate-900 border border-slate-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">High-Density Unified Schema Matrix</h3>
+            <span class="text-xs text-slate-500 font-mono">Total Entities: ${state.schema.entities.length}</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs font-mono border-collapse">
+              <thead>
+                <tr class="border-b border-slate-800 text-slate-400 bg-slate-950/60">
+                  <th class="py-2 px-3">Entity</th>
+                  <th class="py-2 px-3">Records</th>
+                  <th class="py-2 px-3">Attribute</th>
+                  <th class="py-2 px-3">Generator</th>
+                  <th class="py-2 px-3">Key Constraint</th>
+                  <th class="py-2 px-3">Foreign Key Reference</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800/40">
+                ${state.schema.entities.flatMap(ent => ent.attributes.map((attr, idx) => `
+                  <tr class="hover:bg-slate-800/30">
+                    <td class="py-2 px-3 font-bold ${idx === 0 ? 'text-emerald-400' : 'text-slate-600'}">${idx === 0 ? ent.name : ''}</td>
+                    <td class="py-2 px-3 text-slate-400">${idx === 0 ? ent.recordCount : ''}</td>
+                    <td class="py-2 px-3 text-white">${attr.name}</td>
+                    <td class="py-2 px-3 text-cyan-300">${attr.type}</td>
+                    <td class="py-2 px-3">${attr.isPrimaryKey ? '<span class="text-amber-400 font-bold">PRIMARY KEY</span>' : 'None'}</td>
+                    <td class="py-2 px-3">${attr.fkTarget ? `<span class="text-emerald-400 font-semibold">${attr.fkTarget}</span>` : '-'}</td>
+                  </tr>
+                `)).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function selectEntity(i) {
+      state.selectedEntityIndex = i;
+      renderApp();
+      renderExportPreview();
+    }
+
+    function setEntityRecordCount(idx, count) {
+      state.schema.entities[idx].recordCount = parseInt(count) || 5;
+      executeEngine();
+    }
+
+    function promptAddEntity() {
+      const name = prompt("Enter new entity name:", "products");
+      if (name && !state.schema.entities.some(e => e.name === name)) {
+        state.schema.entities.push({
+          name: name.trim().toLowerCase(),
+          recordCount: 5,
+          attributes: [
+            { name: 'id', type: 'autoincrement', isPrimaryKey: true, nullable: false },
+            { name: 'title', type: 'categorical', params: { choices: ['Item Alpha', 'Item Beta', 'Item Gamma'] }, isPrimaryKey: false, nullable: false }
+          ]
+        });
+        state.selectedEntityIndex = state.schema.entities.length - 1;
+        renderApp();
+        executeEngine();
+      }
+    }
+
+    function promptAddAttribute(entityIndex) {
+      const name = prompt("Enter attribute name:", "status");
+      if (!name) return;
+      const type = prompt("Enter generator type (full_name, email, phone, city, numeric_range, categorical, foreign_key):", "categorical");
+      if (!type) return;
+
+      let fkTarget = null;
+      if (type === 'foreign_key') {
+        fkTarget = prompt("Enter target Entity.Attribute (e.g. users.id):", "users.id");
+      }
+
+      state.schema.entities[entityIndex].attributes.push({
+        name: name.trim().toLowerCase(),
+        type: type.trim(),
+        isPrimaryKey: false,
+        nullable: true,
+        fkTarget: fkTarget
+      });
+
+      renderApp();
+      executeEngine();
+    }
+
+    // UI VARIANT SWITCHER LOGIC (Cycles A -> B -> C)
+    const VARIANTS = ['A', 'B', 'C'];
+    function cycleVariant(direction) {
+      let idx = VARIANTS.indexOf(state.variant) + direction;
+      if (idx < 0) idx = VARIANTS.length - 1;
+      if (idx >= VARIANTS.length) idx = 0;
+      state.variant = VARIANTS[idx];
+      renderApp();
+    }
+
+    // Keyboard navigation (Arrow keys cycle variants)
+    window.addEventListener('keydown', (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+      if (e.key === 'ArrowLeft') cycleVariant(-1);
+      if (e.key === 'ArrowRight') cycleVariant(1);
+    });
+
+    // Init
+    window.addEventListener('DOMContentLoaded', () => {
+      renderLocales();
+      renderResourceSinks();
+      renderApp();
+      executeEngine();
+    });
+  </script>
+</body>
+</html>
