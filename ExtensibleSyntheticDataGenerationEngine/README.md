@@ -110,7 +110,7 @@ flowchart TD
 ```
 This automatically starts:
 - **Backend API**: `http://localhost:8000` (Docs: `http://localhost:8000/docs`)
-- **Frontend Web**: `http://localhost:3000`
+- **Frontend Web**: `http://localhost:3002`
 
 ### Option 2: Docker Compose
 ```bash
@@ -220,3 +220,4 @@ curl -OJ http://localhost:8000/api/v1/download/demo_store/excel
 # Apache Parquet Columnar Archive
 curl -OJ http://localhost:8000/api/v1/download/demo_store/parquet
 ```
+

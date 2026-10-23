@@ -8,7 +8,7 @@ echo "=========================================================="
 # Pre-flight check: release ports if held by stale docker containers
 if command -v docker >/dev/null 2>&1; then
     if [ "$(docker ps -q -f name=synthetic-engine-web)" ]; then
-        echo "Stopping background Docker container 'synthetic-engine-web' on port 3000..."
+        echo "Stopping background Docker container 'synthetic-engine-web' on port 3002..."
         docker stop synthetic-engine-web >/dev/null 2>&1 || true
     fi
     if [ "$(docker ps -q -f name=synthetic-engine-api)" ]; then
@@ -40,7 +40,7 @@ else
     API_PID=$!
 fi
 
-echo "Starting Next.js frontend on http://localhost:3000..."
+echo "Starting Next.js frontend on http://localhost:3002..."
 cd apps/web && npm run dev &
 WEB_PID=$!
 
