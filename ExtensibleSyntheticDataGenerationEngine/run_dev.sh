@@ -5,17 +5,21 @@ echo "=========================================================="
 echo " Starting Extensible Synthetic Data Generation Engine"
 echo "=========================================================="
 
-# Pre-flight check: release ports if held by stale docker containers
+# Pre-flight check: release ports if held by stale docker containers or processes
 if command -v docker >/dev/null 2>&1; then
     if [ "$(docker ps -q -f name=synthetic-engine-web)" ]; then
-        echo "Stopping background Docker container 'synthetic-engine-web' on port 3002..."
+        echo "Stopping background Docker container 'synthetic-engine-web'..."
         docker stop synthetic-engine-web >/dev/null 2>&1 || true
     fi
     if [ "$(docker ps -q -f name=synthetic-engine-api)" ]; then
-        echo "Stopping background Docker container 'synthetic-engine-api' on port 8000..."
+        echo "Stopping background Docker container 'synthetic-engine-api'..."
         docker stop synthetic-engine-api >/dev/null 2>&1 || true
     fi
 fi
+
+# Ensure ports 8000 and 3002 are completely free
+fuser -k 8000/tcp >/dev/null 2>&1 || true
+fuser -k 3002/tcp >/dev/null 2>&1 || true
 
 # Check Python environment
 if [ ! -d "apps/api/.venv" ]; then
@@ -41,13 +45,15 @@ else
 fi
 
 echo "Starting Next.js frontend on http://localhost:3002..."
-cd apps/web && npm run dev &
+(cd apps/web && PORT=3002 npm run dev) &
 WEB_PID=$!
 
 cleanup() {
     echo "Shutting down services..."
     kill $API_PID 2>/dev/null || true
     kill $WEB_PID 2>/dev/null || true
+    fuser -k 8000/tcp >/dev/null 2>&1 || true
+    fuser -k 3002/tcp >/dev/null 2>&1 || true
     exit 0
 }
 
