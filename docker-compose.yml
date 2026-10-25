@@ -1,0 +1,134 @@
+services:
+  # ----------------------------------------------------------------------------
+  # Source PostgreSQL (Transactional Database)
+  # Simulates production OLTP database holding orders, customers, and order items
+  # ----------------------------------------------------------------------------
+  postgres_source:
+    image: postgres:15-alpine
+    container_name: saudi_ecom_postgres_source
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-saudi_ecom_orders}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      TZ: Asia/Riyadh
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_source_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-saudi_ecom_orders}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - saudi_ecom_network
+
+  # ----------------------------------------------------------------------------
+  # Airflow Metadata Database
+  # ----------------------------------------------------------------------------
+  postgres_airflow:
+    image: postgres:15-alpine
+    container_name: saudi_ecom_airflow_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      TZ: Asia/Riyadh
+    volumes:
+      - postgres_airflow_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - saudi_ecom_network
+
+  # ----------------------------------------------------------------------------
+  # Airflow Init (Runs db migrate and user creation once)
+  # ----------------------------------------------------------------------------
+  airflow_init:
+    image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.9.2}
+    container_name: saudi_ecom_airflow_init
+    depends_on:
+      postgres_airflow:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres_airflow:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+    networks:
+      - saudi_ecom_network
+
+  # ----------------------------------------------------------------------------
+  # Airflow Webserver (UI on http://localhost:8080)
+  # ----------------------------------------------------------------------------
+  airflow_webserver:
+    image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.9.2}
+    container_name: saudi_ecom_airflow_webserver
+    restart: unless-stopped
+    depends_on:
+      airflow_init:
+        condition: service_completed_successfully
+      postgres_airflow:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres_airflow:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-saudi_ecom_airflow_secret_key_2026}
+      TZ: Asia/Riyadh
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./dbt:/opt/airflow/dbt
+      - ./sql:/opt/airflow/sql
+      - ./logs/airflow:/opt/airflow/logs
+      - ./.env:/opt/airflow/.env:ro
+    networks:
+      - saudi_ecom_network
+
+  # ----------------------------------------------------------------------------
+  # Airflow Scheduler
+  # ----------------------------------------------------------------------------
+  airflow_scheduler:
+    image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.9.2}
+    container_name: saudi_ecom_airflow_scheduler
+    restart: unless-stopped
+    depends_on:
+      airflow_init:
+        condition: service_completed_successfully
+      postgres_airflow:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres_airflow:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      TZ: Asia/Riyadh
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./dbt:/opt/airflow/dbt
+      - ./sql:/opt/airflow/sql
+      - ./logs/airflow:/opt/airflow/logs
+      - ./.env:/opt/airflow/.env:ro
+    networks:
+      - saudi_ecom_network
+
+volumes:
+  postgres_source_data:
+    name: saudi_ecom_postgres_source_data
+  postgres_airflow_data:
+    name: saudi_ecom_postgres_airflow_data
+
+networks:
+  saudi_ecom_network:
+    name: saudi_ecom_network
+    driver: bridge
