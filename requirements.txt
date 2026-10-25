@@ -27,3 +27,4 @@ requests>=2.31.0
 # Analytics & Visualization
 streamlit>=1.34.0
 plotly>=5.22.0
+

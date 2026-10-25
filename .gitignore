@@ -58,3 +58,4 @@ data/
 *.xlsx
 logs/
 
+.venv/
