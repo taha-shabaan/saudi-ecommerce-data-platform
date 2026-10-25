@@ -31,8 +31,18 @@ An enterprise-grade, cloud-native modern data platform designed and engineered t
 ---
 
 ## 🇸🇦 Business Context, Market Dynamics & SLAs
-Operating eCommerce in Saudi Arabia presents unique domain characteristics that directly shape our platform architecture:
+Operating eCommerce in Saudi Arabia presents unique domain characteristics that directly shape our platform architecture. Management wants to answer questions such as:
+- **Which cities generate the most revenue**: Riyadh, Jeddah, Dammam, or other cities?
+- **What are the company's daily and monthly sales?**
+- **Which products generate the most profit?**
+- **How many customers return to make additional purchases?**
+- **Which orders are delayed or canceled?**
+- **How does delivery performance vary between cities?**
+- **What is the average order value?**
+- **How is the business performing during Ramadan, Eid, and Saudi National Day promotions?**
+- **How can management obtain updated sales reports automatically every day?**
 
+### Key Market Dynamics & Operational Characteristics:
 1. **Payment Ecosystem Nuances**:
    * High adoption of **Mada** debit cards and **Apple Pay**.
    * Presence of **BNPL** providers (Tabby, Tamara) requiring multi-state reconciliation.
