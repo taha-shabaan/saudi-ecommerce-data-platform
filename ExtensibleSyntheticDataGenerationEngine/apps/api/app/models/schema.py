@@ -2,7 +2,7 @@
 Schema and data transfer models for the Synthetic Data Generation Engine.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 import uuid
 import re
@@ -128,6 +128,77 @@ class GenerateRequest(BaseModel):
     entities: List[EntityDefinition] = Field(..., min_length=1, description="List of schema entities")
     policy: ConsistencyPolicy = Field(default_factory=ConsistencyPolicy)
     sinks: ExportSinksConfig = Field(default_factory=ExportSinksConfig)
+
+
+class DbmlImportRequest(BaseModel):
+    """
+    Inbound DBDiagram.io schema import payload.
+    """
+    name: str = Field(..., min_length=1, max_length=120, description="Project name for the imported schema")
+    source: str = Field(..., min_length=1, description="Raw DBDiagram.io DBML syntax document")
+
+
+class DbmlImportResponse(BaseModel):
+    """
+    Outbound DBML import preview: mapped entities plus parse warnings.
+    """
+    name: str
+    entities: List[Any]
+    warnings: List[str] = Field(default_factory=list)
+
+
+class SchemaSaveRequest(BaseModel):
+    """
+    Inbound Saved Schema upsert: full canvas snapshot keyed by unique name.
+    """
+    name: str = Field(..., min_length=1, max_length=120, description="Unique retrieval key for the Saved Schema")
+    origin: Literal["dbml_import", "template", "canvas"] = Field(
+        default="canvas", description="How the schema was created: 'dbml_import', 'template', or 'canvas'"
+    )
+    dbml_source: Optional[str] = Field(default=None, description="Original DBML document when origin is an import")
+    snapshot: Dict[str, Any] = Field(..., description="Complete canvas configuration to restore later")
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        clean = v.strip()
+        if not clean:
+            raise ValueError("Schema name must not be blank")
+        return clean
+
+
+class SchemaSaveResponse(BaseModel):
+    """
+    Outbound result of a Saved Schema upsert.
+    """
+    name: str
+    status: str = Field(..., description="'created' or 'updated'")
+    created_at: str
+    updated_at: str
+    entity_count: int
+
+
+class SavedSchemaListItem(BaseModel):
+    """
+    Compact metadata row for the Saved Schema listing (no snapshot, no source payload).
+    """
+    name: str
+    origin: str
+    entity_count: int
+    created_at: str
+    updated_at: str
+
+
+class SavedSchemaRecord(BaseModel):
+    """
+    Full Saved Schema record including the snapshot for canvas restoration.
+    """
+    name: str
+    origin: str
+    dbml_source: Optional[str]
+    snapshot: Dict[str, Any]
+    created_at: str
+    updated_at: str
 
 
 class GenerateResponse(BaseModel):

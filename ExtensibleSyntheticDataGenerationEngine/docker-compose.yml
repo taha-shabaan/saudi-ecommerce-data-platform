@@ -12,6 +12,7 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - ./apps/api/app:/app/app
+      - ./data/api:/app/data
     restart: unless-stopped
 
   web:

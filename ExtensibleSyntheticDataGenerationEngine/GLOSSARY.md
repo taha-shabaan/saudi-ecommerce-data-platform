@@ -48,6 +48,14 @@ _Avoid_: Execution tree, table flow, relation graph
 A curated, pre-configured schema representing standard domain models used to initialize generation workflows.
 _Avoid_: Sample schema, preset, demo project
 
+**Saved Schema**:
+A named snapshot of the complete canvas configuration — entities, relationships, target locales, consistency policy, and sink configuration — persisted so the same working state can be retrieved later by name, regardless of how the schema was created (upload, template, or hand-built).
+_Avoid_: Imported file, backup, project
+
+**Schema Registry**:
+The persistent store holding saved schemas, keyed by unique schema name, that survives system restarts.
+_Avoid_: Artifact store, cache, upload history
+
 **Consistency Policy**:
 A configurable rule set governing the degree of relational integrity, locale coherence, and data cleanliness enforced during generation.
 _Avoid_: Validation level, quality rule, data rule

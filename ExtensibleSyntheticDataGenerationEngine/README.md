@@ -139,18 +139,19 @@ npm run dev
 
 ## Running Automated Tests
 
-Run the full pytest suite covering all 5 architectural seams:
+Run the full pytest suite covering all 5 architectural seams (plus the DBML importer and the Saved Schema Registry):
 ```bash
 PYTHONPATH=apps/api ./apps/api/.venv/bin/pytest apps/api/tests/ -v
 ```
 
-All 21 tests verify:
+All 40 tests verify:
 - Topological dependency sorting and cycle diagnostic errors.
 - Extensible generator registry and multi-locale outputs.
 - Referential integrity, PK pools, and orphan key injection.
 - Export sinks for PostgreSQL, Excel, CSV, Parquet, JSON, and DuckDB.
 - FastAPI end-to-end endpoints and dynamic pagination.
-
+- DBDiagram.io (DBML) subset import with line-numbered diagnostics.
+- Saved Schema registry persistence (SQLite, name-keyed upsert, delete, restart survival).
 ---
 
 ## Example API Usage

@@ -2,7 +2,7 @@
 FastAPI Application Entrypoint for Synthetic Data Engine.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 import io
 import zipfile
 import uuid
@@ -10,10 +10,15 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse
 
-from app.models.schema import GenerateRequest, GenerateResponse
+from app.models.schema import (
+    GenerateRequest, GenerateResponse, DbmlImportRequest, DbmlImportResponse,
+    SchemaSaveRequest, SchemaSaveResponse, SavedSchemaListItem, SavedSchemaRecord
+)
 from app.core.resolver import CircularDependencyError, MissingEntityReferenceError
+from app.core.dbml import parse_dbml, DbmlParseError
 from app.core.engine import DataEngine
 from app.core.registry import GeneratorRegistry
+from app.core.schema_registry import get_registry
 from app.exporters import (
     PostgresExporter,
     ExcelExporter,
@@ -180,6 +185,69 @@ def generate_dataset(request: GenerateRequest) -> GenerateResponse:
     )
 
 
+@app.post("/api/v1/schemas/import-dbml", response_model=DbmlImportResponse)
+def import_dbml_schema(request: DbmlImportRequest) -> DbmlImportResponse:
+    """
+    Imports a DBDiagram.io (DBML) schema document into engine entities.
+    Fails with line-numbered diagnostics when the document cannot be mapped.
+    """
+    try:
+        result = parse_dbml(request.source, fallback_name=request.name)
+    except DbmlParseError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "DBML_PARSE_ERROR", "message": str(e), "diagnostics": [
+                {"line": d.line, "message": d.message} for d in e.diagnostics
+            ]}
+        )
+
+    return DbmlImportResponse(name=result.name, entities=result.entities, warnings=result.warnings)
+
+
+@app.post("/api/v1/schemas", response_model=SchemaSaveResponse)
+def save_schema(request: SchemaSaveRequest, response: Response) -> SchemaSaveResponse:
+    """
+    Upserts a Saved Schema keyed by its unique name (overwrite on conflict).
+    Returns 201 on first save, 200 on overwrite.
+    """
+    record = get_registry().upsert(
+        name=request.name,
+        origin=request.origin,
+        dbml_source=request.dbml_source,
+        snapshot=request.snapshot,
+    )
+    if record["status"] == "created":
+        response.status_code = 201
+    return SchemaSaveResponse(
+        name=record["name"],
+        status=record["status"],
+        created_at=record["created_at"],
+        updated_at=record["updated_at"],
+        entity_count=len(record["snapshot"].get("entities", [])),
+    )
+
+
+@app.get("/api/v1/schemas", response_model=Dict[str, List[SavedSchemaListItem]])
+def list_saved_schemas() -> Dict[str, List[SavedSchemaListItem]]:
+    """Metadata for all Saved Schemas, most recently updated first."""
+    return {"schemas": get_registry().list()}
+
+
+@app.get("/api/v1/schemas/{name}", response_model=SavedSchemaRecord)
+def get_saved_schema(name: str) -> SavedSchemaRecord:
+    """Full Saved Schema record including the canvas snapshot."""
+    record = get_registry().get(name)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Saved Schema '{name}' not found")
+    return SavedSchemaRecord(**record)
+
+
+@app.delete("/api/v1/schemas/{name}", status_code=204)
+def delete_saved_schema(name: str) -> None:
+    if not get_registry().delete(name):
+        raise HTTPException(status_code=404, detail=f"Saved Schema '{name}' not found")
+
+
 @app.get("/api/v1/mock/{schema_id}")
 def get_mock_catalog(schema_id: str) -> Dict[str, Any]:
     """Catalog endpoint listing all entities and record counts for a schema."""
@@ -226,3 +294,4 @@ def download_artifact(schema_id: str, export_type: str):
         media_type=item["media_type"],
         headers={"Content-Disposition": f'attachment; filename="{item["filename"]}"'}
     )
+
