@@ -1,4 +1,4 @@
-"""Unit tests for S3 storage client and deterministic raw zone partitioning."""
+"""Unit & Live Integration tests for S3 storage client and raw zone partitioning."""
 
 import gzip
 import json
@@ -8,6 +8,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from src.common.config import settings
 from src.common.exceptions import PermanentError
 from src.common.s3_client import S3Client
 
@@ -103,3 +104,50 @@ def test_list_objects_and_check_existence(s3_env):
     assert len(keys) == 1
     assert keys[0] == key
 
+
+@pytest.mark.live_aws
+def test_live_aws_s3_upload_and_read():
+    """Live test that uploads and verifies real data in the configured AWS S3 bucket."""
+    if not settings.aws_access_key_id or not settings.aws_secret_access_key:
+        pytest.skip("AWS credentials not configured in environment")
+
+    client = S3Client(
+        bucket_name=settings.env_storage_bucket,
+        region_name=settings.aws_default_region,
+    )
+
+    live_records = [
+        {
+            "order_id": "ORD-LIVE-SAUDI-001",
+            "customer_name": "سلطان العتيبي",
+            "region": "Riyadh Region",
+            "city": "Riyadh",
+            "payment_method": "MADA",
+            "subtotal_halalas": 45000,
+            "vat_halalas": 6750,
+            "total_halalas": 51750,
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+        {
+            "order_id": "ORD-LIVE-SAUDI-002",
+            "customer_name": "نورة الشمري",
+            "region": "Eastern Province",
+            "city": "Dammam",
+            "payment_method": "APPLE_PAY",
+            "subtotal_halalas": 28000,
+            "vat_halalas": 4200,
+            "total_halalas": 32200,
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    ]
+
+    key = client.upload_json_records(
+        records=live_records,
+        source="postgres",
+        entity="orders",
+        filename_prefix="live_test",
+    )
+
+    assert client.object_exists(key) is True
+    listed = client.list_objects(prefix="raw/postgres/orders/")
+    assert key in listed
