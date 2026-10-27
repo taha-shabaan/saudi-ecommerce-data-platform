@@ -8,6 +8,7 @@ from src.common.exceptions import (
     TransientError,
 )
 from src.common.logging import generate_correlation_id, get_logger, sanitize_payload
+from src.common.s3_client import S3Client
 
 __all__ = [
     "AppSettings",
@@ -19,5 +20,6 @@ __all__ = [
     "get_logger",
     "generate_correlation_id",
     "sanitize_payload",
+    "S3Client",
 ]
 
