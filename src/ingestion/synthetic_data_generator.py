@@ -335,6 +335,15 @@ class SaudiSyntheticGenerator:
             with engine.connect() as conn:
                 logger.info(f"Connected to PostgreSQL at {settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}")
 
+                # Clean drop in reverse dependency order
+                conn.execute(text("""
+                    DROP TABLE IF EXISTS order_items CASCADE;
+                    DROP TABLE IF EXISTS orders CASCADE;
+                    DROP TABLE IF EXISTS products CASCADE;
+                    DROP TABLE IF EXISTS customers CASCADE;
+                """))
+                conn.commit()
+
                 # Create schema DDL
                 conn.execute(text("""
                     CREATE TABLE IF NOT EXISTS customers (
@@ -405,10 +414,10 @@ class SaudiSyntheticGenerator:
             df_orders = pd.DataFrame(orders)
             df_order_items = pd.DataFrame(order_items)
 
-            df_customers.to_sql("customers", engine, if_exists="replace", index=False)
-            df_products.to_sql("products", engine, if_exists="replace", index=False)
-            df_orders.to_sql("orders", engine, if_exists="replace", index=False)
-            df_order_items.to_sql("order_items", engine, if_exists="replace", index=False)
+            df_customers.to_sql("customers", engine, if_exists="append", index=False)
+            df_products.to_sql("products", engine, if_exists="append", index=False)
+            df_orders.to_sql("orders", engine, if_exists="append", index=False)
+            df_order_items.to_sql("order_items", engine, if_exists="append", index=False)
 
             logger.info("Successfully seeded customers, products, orders, and order_items to PostgreSQL.")
             return True
