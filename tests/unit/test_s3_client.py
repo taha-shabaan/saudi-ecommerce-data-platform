@@ -1,13 +1,12 @@
 """Unit & Live Integration tests for S3 storage client and raw zone partitioning."""
 
+from datetime import UTC, datetime
 import gzip
 import json
-from datetime import UTC, datetime
-
 import boto3
-import pytest
 from moto import mock_aws
-
+import pytest
+from src.common.config import settings
 from src.common.config import settings
 from src.common.exceptions import PermanentError
 from src.common.s3_client import S3Client
@@ -151,3 +150,5 @@ def test_live_aws_s3_upload_and_read():
     assert client.object_exists(key) is True
     listed = client.list_objects(prefix="raw/postgres/orders/")
     assert key in listed
+
+
