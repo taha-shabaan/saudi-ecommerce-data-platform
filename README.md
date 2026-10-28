@@ -17,7 +17,7 @@ An enterprise-grade, cloud-native modern data platform designed and engineered t
 * [🏗️ Architecture & End-to-End Data Flow](#️-architecture--end-to-end-data-flow)
 * [💰 Domain Modeling & Financial Standards](#-domain-modeling--financial-standards)
 * [🗄️ Data Lake & Storage Layout](#️-data-lake--storage-layout)
-* [⚡ Processing & Lakehouse Ingestion Engine](#-processing--lakehouse-ingestion-engine)
+* [⚡ Multi-Modal Ingestion Architecture & Data Lake Engine](#-multi-modal-ingestion-architecture--data-lake-engine)
 * [🏛️ Dimensional Data Modeling (dbt)](#️-dimensional-data-modeling-dbt)
 * [⏱️ Orchestration & Workflow DAGs (Apache Airflow)](#️-orchestration--workflow-dags-apache-airflow)
 * [🛡️ Data Quality, Circuit Breakers & Observability](#️-data-quality-circuit-breakers--observability)
@@ -167,48 +167,162 @@ All domain concepts adhere strictly to the ubiquitous vocabulary defined in [`GL
 ---
 
 ## 🗄️ Data Lake & Storage Layout
-Object keys in AWS S3 follow deterministic, partition-pruning paths across the `raw/` and `processed/` zones:
+Object keys in AWS S3 follow deterministic, partition-pruning paths conforming strictly to the lakehouse storage zones defined in [`GLOSSARY.md`](GLOSSARY.md):
 
 ```text
-s3://saudi-ecom-data-lake/
+s3://saudi-ecommerce-data-lake-152353915668/
 │
-├── raw/                               # Immutable raw landing zone
-│   ├── postgres/
-│   │   ├── orders/year=2026/month=10/day=23/orders_20261023_040000.json.gz
-│   │   ├── order_items/year=2026/month=10/day=23/order_items_...
-│   │   └── customers/year=2026/month=10/day=23/customers_...
-│   ├── payments_api/
-│   │   └── transactions/year=2026/month=10/day=23/tx_...
-│   └── operational/
-│       ├── sales_targets_2026.xlsx
-│       └── product_catalog_overrides.csv
+├── raw/                               # Immutable Raw Landing Zone
+│   ├── postgres/                      # Relational OLTP extractions (High-Watermark)
+│   │   ├── orders/year=2026/month=10/day=28/orders_20261028_100000.parquet
+│   │   ├── order_items/year=2026/month=10/day=28/order_items_...parquet
+│   │   ├── customers/year=2026/month=10/day=28/customers_...parquet
+│   │   └── products/year=2026/month=10/day=28/products_...parquet
+│   │
+│   ├── payment_api/                   # Payment gateway REST API streams
+│   │   └── payments/year=2026/month=10/day=28/payments_...json.gz
+│   │
+│   └── logistics/                     # 3PL Couriers (SMSA, Aramex) & operational feeds
+│       ├── shipments/year=2026/month=10/day=28/shipments_...parquet
+│       ├── deliveries/year=2026/month=10/day=28/deliveries_...parquet
+│       └── operational_targets/year=2026/targets_2026.xlsx
 │
-└── processed/                         # Curated columnar Parquet
+└── processed/                         # Cleaned, deduplicated, columnar Snappy Parquet
     ├── orders/year=2026/month=10/part-0000.c000.snappy.parquet
     ├── order_items/year=2026/month=10/...
     ├── customers/year=2026/month=10/...
-    └── payments/year=2026/month=10/...
+    ├── products/year=2026/month=10/...
+    ├── payments/year=2026/month=10/...
+    ├── shipments/year=2026/month=10/...
+    └── deliveries/year=2026/month=10/...
 ```
 
 ---
 
-## ⚡ Processing & Lakehouse Ingestion Engine
+## ⚡ Multi-Modal Ingestion Architecture & Data Lake Engine
 
-### 1. Incremental High-Watermark Ingestion
-* Transactional extractors query PostgreSQL using monotonically increasing timestamps:
-```sql
-SELECT * FROM source_orders 
-WHERE updated_at >= :last_watermark_ts AND updated_at < :current_run_ts;
+The platform ingests heterogeneous operational datasets spanning relational stores, REST APIs, and 3PL courier logistics files. Ingestion jobs are decoupled from downstream warehouse compute, landing verbatim source extracts into the **S3 Raw Zone** with high fault tolerance, auditability, and idempotency.
+
+```mermaid
+flowchart TD
+    subgraph Sources[" 1. Authoritative Ingestion Sources "]
+        PG[("PostgreSQL OLTP<br/>(orders, order_items,<br/>customers, products)")]
+        API["REST Gateway APIs<br/>(payments settlements,<br/>Mada / Apple Pay / BNPL)"]
+        LOGISTICS["3PL Logistics & Files<br/>(shipments, deliveries,<br/>targets .xlsx, overrides .csv)"]
+    end
+
+    subgraph Extractors[" 2. Ingestion Extraction Layer (`src/ingestion/`) "]
+        direction TB
+        E_PG["PostgresExtractor<br/>• Incremental Watermark<br/>• Keyset Boundary Queries"]
+        E_API["ApiExtractor<br/>• Paginated Ingestion<br/>• Exponential Jitter Retries"]
+        E_FILE["FileLandingExtractor<br/>• Multi-Format Parser<br/>• Schema Validation"]
+    end
+
+    subgraph StorageClient[" 3. S3 Storage Client Engine (`src/common/s3_client.py`) "]
+        S3C["S3Client (Lakehouse Engine)<br/>• Deterministic Hive Partition Keys: raw/{source}/{entity}/year=...<br/>• In-Memory Streaming Gzip JSON Lines (.json.gz)<br/>• Columnar Snappy Parquet (.parquet) via PyArrow<br/>• Exponential Backoff on 429/503 Throttling<br/>• Trace Correlation ID & Metadata Injection"]
+    end
+
+    subgraph RawLake[" 4. AWS S3 Raw Zone (Immutable Landing) "]
+        S3_RAW[("s3://.../raw/<br/>• raw/postgres/{orders,items,customers}/<br/>• raw/payment_api/{payments}/<br/>• raw/logistics/{shipments,deliveries}/")]
+    end
+
+    PG -->|SQLAlchemy connection pool| E_PG
+    API -->|Session pooling & Bearer token| E_API
+    LOGISTICS -->|File reader & Streamer| E_FILE
+
+    E_PG ==> S3C
+    E_API ==> S3C
+    E_FILE ==> S3C
+
+    S3C ==>|Atomic PutObject with retry| S3_RAW
 ```
-* Watermark states are durably tracked in an ingestion metadata audit store.
 
-### 2. PySpark Cleaning & Normalization
-* **Arabic Text Sanitization**: Normalizes Arabic Unicode strings (`أ/إ/آ` to `ا`, `ة` to `ه`, stripping Tatweel/Kashida) for customer names, addresses, and product categories.
-* **Deduplication**: Handles late-arriving records by running windowed deduplication over primary keys ordered by `updated_at DESC`.
-* **Columnar Optimization**: Writes Snappy-compressed Parquet partitioned by `year` and `month`, enforcing schema contracts.
+### 1. Multi-Source Ingestion & Entity Routing Matrix
+The platform ingests seven core business entities across three distinct extraction modalities:
 
-### 3. Decoupled Snowflake Loading ([ADR-0001](docs/adr/0001-decoupled-s3-parquet-snowflake-copy.md))
-* Rather than writing directly from PySpark to Snowflake over JDBC—which couples Spark and Snowflake failure domains, incurs high JDBC egress overhead, and prevents reloading historical partitions without re-running Spark compute—PySpark writes partitioned Parquet files to S3 and Snowflake loads them via an external stage:
+| Business Entity | Authoritative Source System | Extraction Strategy & Frequency | Storage Format | Raw Zone Partition Target |
+|:---|:---|:---|:---|:---|
+| **`customers`** | Transactional PostgreSQL | Incremental watermark (`updated_at`), Hourly | Snappy Parquet | `raw/postgres/customers/year=YYYY/month=MM/day=DD/` |
+| **`products`** | Catalog Database / PIM | Daily snapshot extraction (`updated_at`), Daily | Snappy Parquet | `raw/postgres/products/year=YYYY/month=MM/day=DD/` |
+| **`orders`** | Transactional PostgreSQL | Incremental watermark (`updated_at`), Hourly | Snappy Parquet | `raw/postgres/orders/year=YYYY/month=MM/day=DD/` |
+| **`order_items`** | Transactional PostgreSQL | Incremental watermark (`created_at`), Hourly | Snappy Parquet | `raw/postgres/order_items/year=YYYY/month=MM/day=DD/` |
+| **`payments`** | Payment Gateway REST API | Paginated API polling with watermark, 15 mins | Gzip JSON Lines | `raw/payment_api/payments/year=YYYY/month=MM/day=DD/` |
+| **`shipments`** | 3PL Couriers (SMSA, Aramex) | Webhook batch / File landing, 30 mins | Snappy Parquet | `raw/logistics/shipments/year=YYYY/month=MM/day=DD/` |
+| **`deliveries`** | Last-Mile Courier Systems | Courier mobile feeds / operational files, Daily | Snappy Parquet | `raw/logistics/deliveries/year=YYYY/month=MM/day=DD/` |
+
+---
+
+### 2. S3 Storage Client Engine (`src/common/s3_client.py`)
+To prevent code duplication (**DRY principle**), the lakehouse storage layer is encapsulated behind a unified, high-leverage client:
+
+* **Dual-Format Serialization**:
+  * **Snappy Parquet (`upload_parquet_records`)**: High-throughput columnar serialization for analytical tables (`orders`, `customers`, `shipments`). Accepts `list[dict]`, `pandas.DataFrame`, or `pyarrow.Table`.
+  * **Streaming Gzip JSON Lines (`upload_json_records`)**: Serializes nested or polymorphic payloads into compressed UTF-8 JSON lines (`.json.gz`) without writing intermediate files to disk.
+* **Deterministic Partition Key Calculation**:
+  ```python
+  s3_key = client.build_partition_key(
+      source="postgres",
+      entity="orders",
+      filename="orders_extract_20261028_100000.parquet",
+      zone="raw",
+      partition_date=datetime.now(UTC),
+  )
+  # Result: raw/postgres/orders/year=2026/month=10/day=28/orders_extract_20261028_100000.parquet
+  ```
+* **Transient Error Resilience**: Implements bounded exponential backoff with jitter on AWS `RequestTimeout`, `ThrottlingException`, `SlowDown`, and HTTP `503/500` status codes.
+* **Distributed Audit Metadata**: Injects correlation identifiers (`id_correlation`), record counts, source name, and entity tags directly into S3 object user metadata for traceability across spans.
+
+---
+
+### 3. Relational High-Watermark Extraction (`src/ingestion/postgres_extractor.py`)
+Transactional tables undergo incremental extraction to avoid heavy full-table table scans:
+
+* **Bounded Extraction Filter**:
+  ```sql
+  SELECT *
+  FROM source_orders
+  WHERE updated_at >= :last_watermark_ts 
+    AND updated_at < :current_run_ts
+  ORDER BY updated_at ASC;
+  ```
+* **Durable State Store**: Watermark cursors are persisted durably per entity. If an extraction fails mid-flight, the watermark is not committed, guaranteeing that retries re-extract the interval idempotently.
+* **Late-Arriving Data Tolerant**: Works in tandem with dbt's 7-day lookback merge window to seamlessly capture historical order modifications (such as COD delivery completions).
+
+---
+
+### 4. Resilient REST API Extractor (`src/ingestion/api_extractor.py`)
+Simulates and captures high-volume payment settlement receipts and gateway reconciliation records:
+
+* **Authentication & Session Pooling**: Reuses keep-alive HTTP sessions with Bearer/API token authorization.
+* **Pagination & Rate-Limiting**: Dynamically traverses page-offset and cursor-based payloads (`next_cursor`), enforcing rate-limit ceiling throttles.
+* **Exponential Backoff**: Intercepts HTTP `429 Too Many Requests` and upstream timeouts, retrying with exponential backoff and randomized jitter.
+* **Cash on Delivery (COD) Reconciliation**: Unpacks multi-day settlement lifecycles where order placement precedes cash collection by days.
+
+---
+
+### 5. 3PL Logistics & Operational File Landing (`src/ingestion/file_landing.py`)
+Handles unstructured and semi-structured operational files:
+
+* Ingests operational courier tracking spreadsheets (`.xlsx`), monthly revenue targets, and catalog overrides (`.csv`).
+* Validates schema headers, data types, and non-empty records before streaming gzipped or columnar Parquet artifacts into `s3://{bucket}/raw/logistics/`.
+
+---
+
+### 6. PySpark Cleaning & Processing Engine (Processed Zone)
+PySpark consumes raw zone partitions, executing distributed cleansing and validation before staging for Snowflake:
+* **Arabic Text Sanitization**: Normalizes Arabic Unicode strings (`أ/إ/آ` to `ا`, `ة` to `ه`, strips Tatweel/Kashida, and trims whitespace).
+* **Financial Precision & 15% VAT Invariants**: Validates that all monetary values are non-negative 64-bit integers (**Halalas**), verifying:
+  $$\text{total\_halalas} = \text{subtotal\_halalas} + \text{vat\_halalas} + \text{shipping\_fee\_halalas} - \text{discount\_halalas}$$
+* **Windowed Deduplication**: Resolves duplicate updates across ingestion windows:
+  ```sql
+  ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY updated_at DESC) = 1
+  ```
+* **Curated Parquet Output**: Writes columnar Snappy Parquet partitioned by `year` and `month` to `s3://{bucket}/processed/{entity}/`.
+
+---
+
+### 7. Decoupled Snowflake External Stage Loading ([ADR-0001](docs/adr/0001-decoupled-s3-parquet-snowflake-copy.md))
+PySpark writes partitioned Parquet files to the S3 Processed Zone; Snowflake ingests them via an external stage and native `COPY INTO`:
 ```sql
 COPY INTO raw_staging.stg_orders
 FROM @raw_staging.s3_processed_stage/orders/
@@ -216,6 +330,7 @@ FILE_FORMAT = (TYPE = PARQUET)
 MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
 PURGE = FALSE;
 ```
+This architecture completely decouples Spark and Snowflake failure domains, minimizes compute costs, and facilitates independent pipeline replays.
 
 ---
 
