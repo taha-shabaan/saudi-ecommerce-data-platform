@@ -1,16 +1,16 @@
 """Unit & Live Integration tests for S3 storage client and bronze/raw zone partitioning."""
 
+from datetime import UTC, datetime
 import gzip
 import io
 import json
-from datetime import UTC, datetime
 from typing import Any
 
 import boto3
+from moto import mock_aws
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
-from moto import mock_aws
 
 from src.common.config import settings
 from src.common.exceptions import PermanentError
