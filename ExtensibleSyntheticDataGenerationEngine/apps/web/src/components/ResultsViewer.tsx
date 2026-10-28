@@ -1,6 +1,7 @@
 import React from 'react';
 import { useSchemaStore } from '../store/useSchemaStore';
 import { Download, CheckCircle, Clock, Database, Layers, ExternalLink } from 'lucide-react';
+import { SavedDatasetsPanel } from './SavedDatasetsPanel';
 
 export const ResultsViewer: React.FC = () => {
   const { generationResult, isGenerating, error, setActiveTab } = useSchemaStore();
@@ -47,7 +48,7 @@ export const ResultsViewer: React.FC = () => {
   }
 
   const { schema_id, metrics, execution_order, artifacts } = generationResult;
-  const baseUrl = 'http://localhost:8000';
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   return (
     <div className="space-y-6">
@@ -255,6 +256,10 @@ export const ResultsViewer: React.FC = () => {
         </div>
       )}
 
+      {/* Saved Dataset versions and their re-download links */}
+      <SavedDatasetsPanel />
+
     </div>
   );
 };
+

@@ -16,7 +16,8 @@ from app.models.schema import (
 )
 from app.core.resolver import CircularDependencyError, MissingEntityReferenceError
 from app.core.dbml import parse_dbml, DbmlParseError
-from app.core.engine import DataEngine
+from app.core.engine import DataEngine, GeneratedDataset
+from app.core.dataset_registry import get_dataset_registry
 from app.core.registry import GeneratorRegistry
 from app.core.schema_registry import get_registry
 from app.exporters import (
@@ -43,9 +44,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global in-memory storage for downloadable artifacts
-# { schema_id: { export_type: {"bytes": b"...", "filename": "...", "media_type": "..."} } }
-_ARTIFACT_STORE: Dict[str, Dict[str, Dict[str, Any]]] = {}
+# Generated rows are persisted per generation by the Dataset Registry
+# (app.core.dataset_registry); artifacts are re-derived per download request.
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request, exc: Exception) -> JSONResponse:
+    """Converts unhandled errors into a 500 JSON response so CORS headers are preserved."""
+    return JSONResponse(status_code=500, content={"detail": str(exc)})
 
 
 @app.get("/api/v1/health")
@@ -90,83 +96,48 @@ def generate_dataset(request: GenerateRequest) -> GenerateResponse:
     except Exception as e:
         raise HTTPException(status_code=500, detail={"error": "GENERATION_ERROR", "message": str(e)})
 
-    # Initialize artifact store for this schema
-    _ARTIFACT_STORE[schema_id] = {}
-    artifacts: Dict[str, Any] = {}
+    # Persist this generation as a Saved Dataset before any sink packaging so
+    # rows, generation parameters, and metrics are all reusable later on.
+    saved = get_dataset_registry().save(schema_id, dataset, request)
+    dataset_id = saved["dataset_id"]
+    download_root = f"/api/v1/download/{schema_id}"
 
-    # 1. PostgreSQL Sink
+    artifacts: Dict[str, Any] = {
+        "dataset_id": dataset_id,
+        "dataset_url": f"/api/v1/datasets/{schema_id}",
+    }
+
+    # PostgreSQL preview remains request-time so the response shows a snippet
     if request.sinks.postgres:
         sql_content = PostgresExporter.generate_ddl_and_dml(dataset, request)
-        sql_bytes = sql_content.encode("utf-8")
-        _ARTIFACT_STORE[schema_id]["sql"] = {
-            "bytes": sql_bytes,
-            "filename": f"{schema_id}_migration.sql",
-            "media_type": "application/sql"
-        }
         artifacts["sql"] = {
-            "download_url": f"/api/v1/download/{schema_id}/sql",
+            "download_url": f"{download_root}/sql?dataset_id={dataset_id}",
             "preview_snippet": sql_content[:1000] + ("\n..." if len(sql_content) > 1000 else "")
         }
 
-    # 2. Excel Sink
     if request.sinks.excel:
-        excel_bytes = ExcelExporter.export_to_bytes(dataset)
-        _ARTIFACT_STORE[schema_id]["excel"] = {
-            "bytes": excel_bytes,
-            "filename": f"{schema_id}_data.xlsx",
-            "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        }
         artifacts["excel"] = {
-            "download_url": f"/api/v1/download/{schema_id}/excel",
+            "download_url": f"{download_root}/excel?dataset_id={dataset_id}",
             "sheets": dataset.execution_order
         }
 
-    # 3. CSV Archive Sink
     if request.sinks.csv:
-        csv_zip_bytes = CsvZipExporter.export_to_zip(dataset)
-        _ARTIFACT_STORE[schema_id]["csv"] = {
-            "bytes": csv_zip_bytes,
-            "filename": f"{schema_id}_csv.zip",
-            "media_type": "application/zip"
-        }
         artifacts["csv"] = {
-            "download_url": f"/api/v1/download/{schema_id}/csv"
+            "download_url": f"{download_root}/csv?dataset_id={dataset_id}"
         }
 
-    # 4. Parquet Sink
     if request.sinks.parquet:
-        parquet_tables = ParquetExporter.export_tables(dataset)
-        # Package into a zip archive if multiple entities
-        zip_buf = io.BytesIO()
-        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for ent_name, pq_bytes in parquet_tables.items():
-                zf.writestr(f"{ent_name}.parquet", pq_bytes)
-        pq_zip_bytes = zip_buf.getvalue()
-        _ARTIFACT_STORE[schema_id]["parquet"] = {
-            "bytes": pq_zip_bytes,
-            "filename": f"{schema_id}_parquet.zip",
-            "media_type": "application/zip"
-        }
         artifacts["parquet"] = {
-            "download_url": f"/api/v1/download/{schema_id}/parquet",
-            "entities": list(parquet_tables.keys())
+            "download_url": f"{download_root}/parquet?dataset_id={dataset_id}",
+            "entities": dataset.execution_order
         }
 
-    # 5. JSON Sink
     if request.sinks.json_export:
-        json_bytes = JsonDocExporter.export_to_json(dataset)
-        _ARTIFACT_STORE[schema_id]["json"] = {
-            "bytes": json_bytes,
-            "filename": f"{schema_id}_data.json",
-            "media_type": "application/json"
-        }
         artifacts["json"] = {
-            "download_url": f"/api/v1/download/{schema_id}/json"
+            "download_url": f"{download_root}/json?dataset_id={dataset_id}"
         }
 
-    # 6. Dynamic Mock REST API Sink
     if request.sinks.api:
-        DuckDBApiManager.persist_dataset(schema_id, dataset)
         artifacts["api"] = {
             "catalog_url": f"/api/v1/mock/{schema_id}",
             "sample_routes": [
@@ -249,12 +220,17 @@ def delete_saved_schema(name: str) -> None:
 
 
 @app.get("/api/v1/mock/{schema_id}")
-def get_mock_catalog(schema_id: str) -> Dict[str, Any]:
+def get_mock_catalog(
+    schema_id: str,
+    dataset_id: str = Query(default=None, description="Dataset version; defaults to the newest")
+) -> Dict[str, Any]:
     """Catalog endpoint listing all entities and record counts for a schema."""
     try:
-        return DuckDBApiManager.get_catalog(schema_id)
+        return DuckDBApiManager.get_catalog(schema_id, dataset_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Schema '{schema_id}' not found in mock store: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Catalog error: {str(e)}")
 
 
 @app.get("/api/v1/mock/{schema_id}/{entity_name}")
@@ -262,7 +238,8 @@ def query_mock_entity(
     schema_id: str,
     entity_name: str,
     limit: int = Query(default=10, ge=1, le=1000),
-    offset: int = Query(default=0, ge=0)
+    offset: int = Query(default=0, ge=0),
+    dataset_id: str = Query(default=None, description="Dataset version; defaults to the newest")
 ) -> Dict[str, Any]:
     """Dynamic mock REST endpoint with SQL pagination."""
     try:
@@ -270,7 +247,8 @@ def query_mock_entity(
             schema_id=schema_id,
             entity_name=entity_name,
             limit=limit,
-            offset=offset
+            offset=offset,
+            dataset_id=dataset_id
         )
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -278,20 +256,87 @@ def query_mock_entity(
         raise HTTPException(status_code=500, detail=f"Query error: {str(e)}")
 
 
+@app.get("/api/v1/datasets/{schema_id}")
+def list_saved_datasets(schema_id: str) -> Dict[str, Any]:
+    """Metadata for every Saved Dataset generated for a schema, newest first."""
+    return {"datasets": get_dataset_registry().list(schema_id)}
+
+
+@app.delete("/api/v1/datasets/{schema_id}/{dataset_id}", status_code=204)
+def delete_saved_dataset(schema_id: str, dataset_id: str) -> None:
+    if not get_dataset_registry().delete(schema_id, dataset_id):
+        raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' for schema '{schema_id}' not found")
+
+
+_EXPORT_FILENAMES = {
+    "sql": (f"{{schema}}_migration.sql", "application/sql"),
+    "excel": (f"{{schema}}_data.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    "csv": (f"{{schema}}_csv.zip", "application/zip"),
+    "parquet": (f"{{schema}}_parquet.zip", "application/zip"),
+    "json": (f"{{schema}}_data.json", "application/json"),
+}
+
+
+def _rederive_dataset_bytes(schema_id: str, dataset_id: str, export_type: str) -> bytes:
+    """Loads a saved dataset from disk and re-derives the export artifact bytes."""
+    registry = get_dataset_registry()
+    dataset, request = registry.rebuild(schema_id, dataset_id)
+
+    if export_type == "sql":
+        if request is None:
+            raise ValueError("Dataset has no stored generation parameters to re-derive SQL from")
+        return PostgresExporter.generate_ddl_and_dml(dataset, request).encode("utf-8")
+    if export_type == "excel":
+        return ExcelExporter.export_to_bytes(dataset)
+    if export_type == "csv":
+        return CsvZipExporter.export_to_zip(dataset)
+    if export_type == "parquet":
+        parquet_tables = ParquetExporter.export_tables(dataset)
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for ent_name, pq_bytes in parquet_tables.items():
+                zf.writestr(f"{ent_name}.parquet", pq_bytes)
+        return zip_buf.getvalue()
+    if export_type == "json":
+        return JsonDocExporter.export_to_json(dataset)
+    raise ValueError(f"Unknown export type '{export_type}'")
+
+
 @app.get("/api/v1/download/{schema_id}/{export_type}")
-def download_artifact(schema_id: str, export_type: str):
-    """Downloads generated binary or text artifacts."""
-    schema_artifacts = _ARTIFACT_STORE.get(schema_id)
-    if not schema_artifacts or export_type not in schema_artifacts:
+def download_artifact(
+    schema_id: str,
+    export_type: str,
+    dataset_id: str = Query(default=None, description="Dataset version; defaults to the newest")
+):
+    """Downloads exported artifacts, re-derived on demand from saved rows."""
+    spec = _EXPORT_FILENAMES.get(export_type)
+    if spec is None:
         raise HTTPException(
             status_code=404,
             detail=f"Artifact '{export_type}' for schema '{schema_id}' not found."
         )
 
-    item = schema_artifacts[export_type]
+    registry = get_dataset_registry()
+    if dataset_id is None:
+        latest = registry.latest(schema_id)
+        if latest is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No saved dataset found for schema '{schema_id}'."
+            )
+        dataset_id = latest["dataset_id"]
+
+    try:
+        artifact_bytes = _rederive_dataset_bytes(schema_id, dataset_id, export_type)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' not downloadable: {str(e)}")
+
+    filename = spec[1].format(schema=schema_id)
     return Response(
-        content=item["bytes"],
-        media_type=item["media_type"],
-        headers={"Content-Disposition": f'attachment; filename="{item["filename"]}"'}
+        content=artifact_bytes,
+        media_type=spec[1],
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 

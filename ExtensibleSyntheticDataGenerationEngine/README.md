@@ -112,10 +112,30 @@ This automatically starts:
 - **Backend API**: `http://localhost:8000` (Docs: `http://localhost:8000/docs`)
 - **Frontend Web**: `http://localhost:3002`
 
-### Option 2: Docker Compose
+### Option 2: Docker Compose (Recommended)
+> **Note:** Use `docker compose` (with a **space**, Compose v2), NOT the legacy `docker-compose` v1 binary.
+> The old `docker-compose` v1.29.2 crashes with `KeyError: 'ContainerConfig'` on modern Docker Engines.
+
 ```bash
-docker-compose up --build
+# Build & start (page 3)
+docker compose up -d --build
+
+# Follow logs
+docker compose logs -f
+
+# Stop
+docker compose down
 ```
+
+If you hit a container-name conflict (`The container name "..." is already in use`), remove the stale container first:
+```bash
+docker rm -f <container_id_or_name>
+docker compose up -d --build
+```
+
+Services after startup:
+- **Backend API**: http://localhost:8000 (Docs: http://localhost:8000/docs)
+- **Frontend Web**: http://localhost:3002
 
 ### Option 3: Manual Execution
 
@@ -139,12 +159,12 @@ npm run dev
 
 ## Running Automated Tests
 
-Run the full pytest suite covering all 5 architectural seams (plus the DBML importer and the Saved Schema Registry):
+Run the full pytest suite covering all 5 architectural seams (plus the DBML importer, Saved Schema Registry, and Saved Dataset Registry):
 ```bash
 PYTHONPATH=apps/api ./apps/api/.venv/bin/pytest apps/api/tests/ -v
 ```
 
-All 40 tests verify:
+All 53 tests verify:
 - Topological dependency sorting and cycle diagnostic errors.
 - Extensible generator registry and multi-locale outputs.
 - Referential integrity, PK pools, and orphan key injection.
@@ -152,6 +172,7 @@ All 40 tests verify:
 - FastAPI end-to-end endpoints and dynamic pagination.
 - DBDiagram.io (DBML) subset import with line-numbered diagnostics.
 - Saved Schema registry persistence (SQLite, name-keyed upsert, delete, restart survival).
+- Saved Dataset persistence (one DuckDB rows file + metadata sidecar per generation, version listing, deletion, downloads re-derived after restart, mock API served from persisted rows).
 ---
 
 ## Example API Usage
@@ -212,9 +233,7 @@ curl "http://localhost:8000/api/v1/mock/demo_store/orders?limit=3&offset=0"
 
 ### Download Generated Artifacts
 ```bash
-# PostgreSQL DDL & batched INSERT script
-curl -OJ http://localhost:8000/api/v1/download/demo_store/sql
-
+# PostgreSQL DDL#
 # Excel Multi-Tab Workbook
 curl -OJ http://localhost:8000/api/v1/download/demo_store/excel
 
@@ -222,3 +241,8 @@ curl -OJ http://localhost:8000/api/v1/download/demo_store/excel
 curl -OJ http://localhost:8000/api/v1/download/demo_store/parquet
 ```
 
+# TODO
+# prerquisite
+# technology use
+# video explain the project
+# table of content

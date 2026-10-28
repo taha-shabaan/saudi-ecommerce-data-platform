@@ -71,6 +71,8 @@ export interface GenerateResponse {
     entity_record_counts: Record<string, number>;
   };
   artifacts: {
+    dataset_id?: string;
+    dataset_url?: string;
     sql?: { download_url: string; preview_snippet?: string };
     excel?: { download_url: string; sheets: string[] };
     csv?: { download_url: string };
@@ -86,3 +88,4 @@ export interface CountryLocale {
   country: string;
   flag: string;
 }
+

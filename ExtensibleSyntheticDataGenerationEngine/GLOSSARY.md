@@ -56,6 +56,14 @@ _Avoid_: Imported file, backup, project
 The persistent store holding saved schemas, keyed by unique schema name, that survives system restarts.
 _Avoid_: Artifact store, cache, upload history
 
+**Saved Dataset**:
+The generated rows, generation parameters, and metrics of one generation run, persisted as a distinct identifiable version belonging to a saved schema, so artifacts can be re-derived and served after restarts.
+_Avoid_: Output file, cached result, export asset, backup
+
+**Dataset Registry**:
+The persistent store holding saved datasets, newest-first per schema, that survives system restarts.
+_Avoid_: Cache, artifact store, schema registry
+
 **Consistency Policy**:
 A configurable rule set governing the degree of relational integrity, locale coherence, and data cleanliness enforced during generation.
 _Avoid_: Validation level, quality rule, data rule
