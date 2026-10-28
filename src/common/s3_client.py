@@ -12,10 +12,13 @@ import gzip
 import io
 import json
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
 import boto3
+import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from botocore.exceptions import BotoCoreError, ClientError
 
 from src.common.config import settings
@@ -53,6 +56,31 @@ class S3Client:
             **session_kwargs,
         )
 
+    def build_partition_key(
+        self,
+        source: str,
+        entity: str,
+        filename: str,
+        zone: str = "bronze",
+        partition_date: datetime | None = None,
+    ) -> str:
+        """Construct deterministic Hive-style S3 object key.
+
+        Format:
+            {zone}/{source}/{entity}/year=YYYY/month=MM/day=DD/{filename}
+        """
+        dt = partition_date or datetime.now(UTC)
+        year = dt.strftime("%Y")
+        month = dt.strftime("%m")
+        day = dt.strftime("%d")
+
+        zone_clean = zone.strip().lower()
+        source_clean = source.strip().lower()
+        entity_clean = entity.strip().lower()
+        filename_clean = filename.strip()
+
+        return f"{zone_clean}/{source_clean}/{entity_clean}/year={year}/month={month}/day={day}/{filename_clean}"
+
     def build_bronze_partition_key(
         self,
         source: str,
@@ -60,33 +88,31 @@ class S3Client:
         filename: str,
         partition_date: datetime | None = None,
     ) -> str:
-        """Construct deterministic Hive-style S3 object key for Bronze Zone.
+        """Construct deterministic Hive-style S3 object key for Bronze Zone."""
+        return self.build_partition_key(
+            source=source,
+            entity=entity,
+            filename=filename,
+            zone="bronze",
+            partition_date=partition_date,
+        )
 
-        Format:
-            bronze/{source}/{entity}/year=YYYY/month=MM/day=DD/{filename}
-        """
-        dt = partition_date or datetime.now(UTC)
-        year = dt.strftime("%Y")
-        month = dt.strftime("%m")
-        day = dt.strftime("%d")
-
-        source_clean = source.strip().lower()
-        entity_clean = entity.strip().lower()
-        filename_clean = filename.strip()
-
-        return f"bronze/{source_clean}/{entity_clean}/year={year}/month={month}/day={day}/{filename_clean}"
-
-    def upload_json_records(
+    def _upload_records(
         self,
-        records: list[dict[str, Any]],
+        records: list[dict[str, Any]] | Any,
         source: str,
         entity: str,
+        extension: str,
+        serializer_func: Callable[[Any], bytes],
+        content_type: str,
+        zone: str = "bronze",
         partition_date: datetime | None = None,
         filename_prefix: str | None = None,
         id_correlation: str | None = None,
     ) -> str:
-        """Serialize a list of dictionaries to compressed JSON lines (.json.gz) and upload to S3."""
-        if not records:
+        """Internal DRY upload workflow: validation, path generation, serialization, retry, and audit logging."""
+        record_count = len(records) if hasattr(records, "__len__") else 0
+        if record_count == 0:
             raise PermanentError(
                 message=f"Cannot upload empty record set to S3 for {source}.{entity}",
                 error_code="EMPTY_RECORD_SET_ERROR",
@@ -98,53 +124,120 @@ class S3Client:
         dt = partition_date or datetime.now(UTC)
         timestamp_slug = dt.strftime("%Y%m%d_%H%M%S")
         prefix = filename_prefix or f"{entity}_extract"
-        filename = f"{prefix}_{timestamp_slug}.json.gz"
+        filename = f"{prefix}_{timestamp_slug}.{extension}"
 
-        s3_key = self.build_bronze_partition_key(
+        s3_key = self.build_partition_key(
             source=source,
             entity=entity,
             filename=filename,
+            zone=zone,
             partition_date=dt,
         )
 
-        # Stream serialized records directly into gzip in-memory buffer
-        buffer = io.BytesIO()
-        with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0.0) as gz_out:
-            for record in records:
-                line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
-                gz_out.write(line.encode("utf-8"))
-
-        compressed_data = buffer.getvalue()
-        compressed_size_bytes = len(compressed_data)
+        payload_bytes = serializer_func(records)
+        payload_size_bytes = len(payload_bytes)
 
         start_time = time.time()
         self._put_object_with_retry(
             key=s3_key,
-            body=compressed_data,
-            content_type="application/gzip",
+            body=payload_bytes,
+            content_type=content_type,
             metadata={
                 "id_correlation": correlation_id,
-                "record_count": str(len(records)),
+                "record_count": str(record_count),
                 "source": source,
                 "entity": entity,
+                "format": extension,
             },
         )
         duration_ms = int((time.time() - start_time) * 1000)
 
         logger.info(
-            f"Uploaded {len(records)} records ({compressed_size_bytes} bytes compressed) to s3://{self.bucket_name}/{s3_key}",
+            f"Uploaded {record_count} records ({payload_size_bytes} bytes, {extension}) to s3://{self.bucket_name}/{s3_key}",
             extra={
                 "id_correlation": correlation_id,
                 "duration_ms": duration_ms,
                 "payload": {
                     "bucket": self.bucket_name,
                     "key": s3_key,
-                    "records_count": len(records),
-                    "bytes": compressed_size_bytes,
+                    "records_count": record_count,
+                    "bytes": payload_size_bytes,
+                    "format": extension,
                 },
             },
         )
         return s3_key
+
+    def upload_json_records(
+        self,
+        records: list[dict[str, Any]],
+        source: str,
+        entity: str,
+        zone: str = "bronze",
+        partition_date: datetime | None = None,
+        filename_prefix: str | None = None,
+        id_correlation: str | None = None,
+    ) -> str:
+        """Serialize a list of dictionaries to compressed JSON lines (.json.gz) and upload to S3."""
+        def _serialize_json_gz(data: list[dict[str, Any]]) -> bytes:
+            buffer = io.BytesIO()
+            with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0.0) as gz_out:
+                for record in data:
+                    line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
+                    gz_out.write(line.encode("utf-8"))
+            return buffer.getvalue()
+
+        return self._upload_records(
+            records=records,
+            source=source,
+            entity=entity,
+            extension="json.gz",
+            serializer_func=_serialize_json_gz,
+            content_type="application/gzip",
+            zone=zone,
+            partition_date=partition_date,
+            filename_prefix=filename_prefix,
+            id_correlation=id_correlation,
+        )
+
+    def upload_parquet_records(
+        self,
+        records: list[dict[str, Any]] | Any,
+        source: str,
+        entity: str,
+        zone: str = "bronze",
+        partition_date: datetime | None = None,
+        filename_prefix: str | None = None,
+        id_correlation: str | None = None,
+        compression: str = "snappy",
+    ) -> str:
+        """Serialize records (list of dicts, pyarrow Table, or pandas DataFrame) to Parquet and upload to S3."""
+        def _serialize_parquet(data: Any) -> bytes:
+            if isinstance(data, list):
+                table = pa.Table.from_pylist(data)
+            elif hasattr(data, "to_parquet"):  # pandas DataFrame
+                table = pa.Table.from_pandas(data)
+            elif isinstance(data, pa.Table):
+                table = data
+            else:
+                table = pa.Table.from_pylist(list(data))
+
+            buffer = io.BytesIO()
+            pq.write_table(table, buffer, compression=compression)
+            return buffer.getvalue()
+
+        return self._upload_records(
+            records=records,
+            source=source,
+            entity=entity,
+            extension="parquet",
+            serializer_func=_serialize_parquet,
+            content_type="application/vnd.apache.parquet",
+            zone=zone,
+            partition_date=partition_date,
+            filename_prefix=filename_prefix,
+            id_correlation=id_correlation,
+        )
 
     def _put_object_with_retry(
         self,

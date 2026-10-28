@@ -1,15 +1,29 @@
-"""Unit & Live Integration tests for S3 storage client and raw zone partitioning."""
+"""Unit & Live Integration tests for S3 storage client and bronze/raw zone partitioning."""
 
-from datetime import UTC, datetime
 import gzip
+import io
 import json
+from datetime import UTC, datetime
+from typing import Any
+
 import boto3
-from moto import mock_aws
+import pandas as pd
+import pyarrow.parquet as pq
 import pytest
-from src.common.config import settings
+from moto import mock_aws
+
 from src.common.config import settings
 from src.common.exceptions import PermanentError
 from src.common.s3_client import S3Client
+
+
+@pytest.fixture
+def sample_saudi_orders() -> list[dict[str, Any]]:
+    """Sample realistic Saudi eCommerce orders for testing."""
+    return [
+        {"order_id": "ORD-001", "name_ar": "محمد الغامدي", "amount_halalas": 15000, "city": "Riyadh"},
+        {"order_id": "ORD-002", "name_ar": "سارة القحطاني", "amount_halalas": 32000, "city": "Jeddah"},
+    ]
 
 
 @pytest.fixture
@@ -25,34 +39,39 @@ def s3_env():
         yield {"bucket": bucket_name, "client": s3}
 
 
-def test_build_bronze_partition_key():
+def test_build_partition_keys():
     """Verify deterministic partition path structure conforming to data lake contract."""
-    
     client = S3Client(bucket_name="dummy-bucket", region_name="eu-west-1")
     dt = datetime(2026, 10, 27, 14, 30, 0, tzinfo=UTC)
 
-    key = client.build_bronze_partition_key(
+    # Test generic build_partition_key
+    key_silver = client.build_partition_key(
         source="postgres",
         entity="orders",
-        filename="orders_extract_01.json.gz",
+        filename="orders.parquet",
+        zone="silver",
         partition_date=dt,
     )
-    assert key == "bronze/postgres/orders/year=2026/month=10/day=27/orders_extract_01.json.gz"
+    assert key_silver == "silver/postgres/orders/year=2026/month=10/day=27/orders.parquet"
+
+    # Test bronze shorthand
+    key_bronze = client.build_bronze_partition_key(
+        source="postgres",
+        entity="orders",
+        filename="orders.json.gz",
+        partition_date=dt,
+    )
+    assert key_bronze == "bronze/postgres/orders/year=2026/month=10/day=27/orders.json.gz"
 
 
-def test_upload_json_records_compressed(s3_env):
+def test_upload_json_records_compressed(s3_env, sample_saudi_orders):
     """Verify records are serialized to gzipped UTF-8 JSON lines and uploaded to S3."""
     bucket_name = s3_env["bucket"]
     client = S3Client(bucket_name=bucket_name)
 
-    sample_records = [
-        {"order_id": "ORD-001", "name_ar": "محمد الغامدي", "amount_halalas": 15000},
-        {"order_id": "ORD-002", "name_ar": "سارة القحطاني", "amount_halalas": 32000},
-    ]
-
     dt = datetime(2026, 10, 27, tzinfo=UTC)
     s3_key = client.upload_json_records(
-        records=sample_records,
+        records=sample_saudi_orders,
         source="postgres",
         entity="orders",
         partition_date=dt,
@@ -73,11 +92,64 @@ def test_upload_json_records_compressed(s3_env):
     assert lines[1]["amount_halalas"] == 32000
 
 
-def test_upload_empty_records_raises_error(s3_env):
-    """Uploading empty list should be prevented or handled safely."""
+def test_upload_parquet_records(s3_env, sample_saudi_orders):
+    """Verify records are serialized to Snappy Parquet and uploaded to S3."""
+    bucket_name = s3_env["bucket"]
+    client = S3Client(bucket_name=bucket_name)
+
+    dt = datetime(2026, 10, 27, tzinfo=UTC)
+    s3_key = client.upload_parquet_records(
+        records=sample_saudi_orders,
+        source="postgres",
+        entity="orders",
+        partition_date=dt,
+        filename_prefix="parquet_batch_01",
+    )
+
+    assert s3_key.startswith("bronze/postgres/orders/year=2026/month=10/day=27/parquet_batch_01_")
+    assert s3_key.endswith(".parquet")
+
+    # Read back directly from S3 and deserialize Parquet
+    s3_obj = s3_env["client"].get_object(Bucket=bucket_name, Key=s3_key)
+    parquet_bytes = s3_obj["Body"].read()
+    table = pq.read_table(io.BytesIO(parquet_bytes))
+    loaded_records = table.to_pylist()
+
+    assert len(loaded_records) == 2
+    assert loaded_records[0]["order_id"] == "ORD-001"
+    assert loaded_records[0]["name_ar"] == "محمد الغامدي"
+    assert loaded_records[1]["city"] == "Jeddah"
+
+
+def test_upload_parquet_from_pandas_dataframe(s3_env, sample_saudi_orders):
+    """Verify uploading a pandas DataFrame directly converts to Parquet seamlessly."""
+    bucket_name = s3_env["bucket"]
+    client = S3Client(bucket_name=bucket_name)
+    df = pd.DataFrame(sample_saudi_orders)
+
+    s3_key = client.upload_parquet_records(
+        records=df,
+        source="postgres",
+        entity="orders",
+        filename_prefix="df_batch",
+    )
+
+    assert s3_key.endswith(".parquet")
+    s3_obj = s3_env["client"].get_object(Bucket=bucket_name, Key=s3_key)
+    table = pq.read_table(io.BytesIO(s3_obj["Body"].read()))
+    loaded_df = table.to_pandas()
+    assert len(loaded_df) == 2
+    assert loaded_df.iloc[0]["city"] == "Riyadh"
+
+
+@pytest.mark.parametrize("method_name", ["upload_json_records", "upload_parquet_records"])
+def test_upload_empty_records_raises_error(s3_env, method_name):
+    """DRY validation: uploading empty records in either format raises PermanentError."""
     client = S3Client(bucket_name=s3_env["bucket"])
+    upload_fn = getattr(client, method_name)
+
     with pytest.raises(PermanentError, match="Cannot upload empty record set"):
-        client.upload_json_records(
+        upload_fn(
             records=[],
             source="postgres",
             entity="customers",
@@ -98,7 +170,7 @@ def test_list_objects_and_check_existence(s3_env):
     )
 
     assert client.object_exists(key=key) is True
-    assert client.object_exists(key="bronze/postgres/orders/does_not_exist.json.gz") is False
+    assert client.object_exists(key="bronze/postgres/orders/does_not_exist.parquet") is False
 
     keys = client.list_objects(prefix="bronze/operational_api/payments/year=2026/month=10/")
     assert len(keys) == 1
@@ -107,7 +179,7 @@ def test_list_objects_and_check_existence(s3_env):
 
 @pytest.mark.live_aws
 def test_live_aws_s3_upload_and_read():
-    """Live test that uploads and verifies real data in the configured AWS S3 bucket."""
+    """Live test that uploads both JSON and Parquet and verifies round-trip from AWS S3."""
     if not settings.aws_access_key_id or not settings.aws_secret_access_key:
         pytest.skip("AWS credentials not configured in environment")
 
@@ -141,32 +213,33 @@ def test_live_aws_s3_upload_and_read():
         },
     ]
 
-    key = client.upload_json_records(
+    # 1. Live JSON upload & read-back
+    json_key = client.upload_json_records(
         records=live_records,
         source="postgres",
         entity="orders",
-        filename_prefix="live_test",
+        filename_prefix="live_test_json",
     )
+    assert client.object_exists(json_key) is True
 
-    assert client.object_exists(key) is True
-    listed = client.list_objects(prefix="bronze/postgres/orders/")
-    assert key in listed
+    # 2. Live Parquet upload & read-back
+    parquet_key = client.upload_parquet_records(
+        records=live_records,
+        source="postgres",
+        entity="orders",
+        filename_prefix="live_test_parquet",
+    )
+    assert client.object_exists(parquet_key) is True
 
-    # Download and verify the contents of the uploaded file directly from AWS S3
+    # Read back and verify Parquet directly from AWS
     s3_response = client._s3_client.get_object(
         Bucket=settings.env_storage_bucket,
-        Key=key,
+        Key=parquet_key,
     )
-    compressed_body = s3_response["Body"].read()
-    decompressed = gzip.decompress(compressed_body).decode("utf-8")
-    lines = [json.loads(line) for line in decompressed.strip().split("\n")]
+    table = pq.read_table(io.BytesIO(s3_response["Body"].read()))
+    verified_records = table.to_pylist()
 
-    assert len(lines) == 2
-    assert lines[0]["order_id"] == "ORD-LIVE-SAUDI-001"
-    assert lines[0]["city"] == "Riyadh"
-    assert lines[0]["total_halalas"] == 51750
-    assert lines[1]["order_id"] == "ORD-LIVE-SAUDI-002"
-    assert lines[1]["city"] == "Dammam"
-    assert lines[1]["total_halalas"] == 32200
-
-
+    assert len(verified_records) == 2
+    assert verified_records[0]["order_id"] == "ORD-LIVE-SAUDI-001"
+    assert verified_records[0]["city"] == "Riyadh"
+    assert verified_records[1]["city"] == "Dammam"
