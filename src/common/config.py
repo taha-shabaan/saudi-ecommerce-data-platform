@@ -3,6 +3,7 @@
 Loads configuration from environment variables and `.env` files with strict type enforcement.
 """
 
+import os
 from typing import Literal
 
 from dotenv import load_dotenv
@@ -38,29 +39,29 @@ class AppSettings(BaseSettings):
     )
 
     # AWS S3 Data Lake Configuration
-    aws_access_key_id: str | None = Field(default=None, description="AWS IAM Access Key ID")
-    aws_secret_access_key: str | None = Field(default=None, description="AWS IAM Secret Access Key")
-    aws_default_region: str = Field(default="eu-west-1", description="Target AWS region")
+    aws_access_key_id: str | None = Field(os.getenv("aws_access_key_id"), description="AWS IAM Access Key ID")
+    aws_secret_access_key: str | None = Field(os.getenv("aws_secret_access_key"), description="AWS IAM Secret Access Key")
+    aws_default_region: str = Field(default=os.getenv("aws_default_region"), description="Target AWS region")
     env_storage_bucket: str = Field(
-        default="saudi-ecommerce-data-lake-dev",
+        default=os.getenv("env_storage_bucket"),
         description="Primary S3 Data Lake bucket name",
     )
 
     # Snowflake Cloud Data Warehouse Configuration
-    snowflake_account: str | None = Field(default=None, description="Snowflake account locator/identifier")
-    snowflake_user: str | None = Field(default=None, description="Snowflake user")
-    snowflake_password: str | None = Field(default=None, description="Snowflake password")
-    snowflake_role: str = Field(default="SYSADMIN", description="Default Snowflake role")
-    snowflake_warehouse: str = Field(default="COMPUTE_WH", description="Snowflake virtual warehouse")
-    snowflake_database: str = Field(default="SAUDI_ECOM_DW", description="Analytics database")
-    snowflake_schema: str = Field(default="RAW_STAGING", description="Default landing schema")
+    snowflake_account: str | None = Field(default=os.getenv("snowflake_account"), description="Snowflake account locator/identifier")
+    snowflake_user: str | None = Field(default=os.getenv("snowflake_user"), description="Snowflake user")
+    snowflake_password: str | None = Field(default=os.getenv("snowflake_password"), description="Snowflake password")
+    snowflake_role: str = Field(default=os.getenv("snowflake_role"), description="Default Snowflake role")
+    snowflake_warehouse: str = Field(default=os.getenv("snowflake_warehouse"), description="Snowflake virtual warehouse")
+    snowflake_database: str = Field(default=os.getenv("snowflake_database"), description="Analytics database")
+    snowflake_schema: str = Field(default=os.getenv("snowflake_schema"), description="Default landing schema")
 
     # Source PostgreSQL Configuration (OLTP Store)
     postgres_host: str = Field(default="localhost", description="PostgreSQL host")
     postgres_port: int = Field(default=5432, description="PostgreSQL port")
     postgres_db: str = Field(default="saudi_ecom_orders", description="PostgreSQL database name")
     postgres_user: str = Field(default="postgres", description="PostgreSQL username")
-    postgres_password: str = Field(default="postgres", description="PostgreSQL password")
+    postgres_password: str = Field(default=os.getenv("postgres_password")               , description="PostgreSQL password")
 
     @property
     def postgres_connection_url(self) -> str:

@@ -100,8 +100,8 @@ class TestCommonConfig:
 
     def test_default_settings(self, monkeypatch):
         # Clear environment overrides to test pure default values
-        monkeypatch.delenv("ENV_STORAGE_BUCKET", raising=False)
-        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+        monkeypatch.setenv("ENV_STORAGE_BUCKET", "saudi-ecommerce-data-lake-dev")
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "eu-west-1")
         config = AppSettings(
             _env_file=None,  # ignore local .env for isolated test
             postgres_host="test_host",

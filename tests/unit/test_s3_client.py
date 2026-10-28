@@ -152,4 +152,21 @@ def test_live_aws_s3_upload_and_read():
     listed = client.list_objects(prefix="bronze/postgres/orders/")
     assert key in listed
 
+    # Download and verify the contents of the uploaded file directly from AWS S3
+    s3_response = client._s3_client.get_object(
+        Bucket=settings.env_storage_bucket,
+        Key=key,
+    )
+    compressed_body = s3_response["Body"].read()
+    decompressed = gzip.decompress(compressed_body).decode("utf-8")
+    lines = [json.loads(line) for line in decompressed.strip().split("\n")]
+
+    assert len(lines) == 2
+    assert lines[0]["order_id"] == "ORD-LIVE-SAUDI-001"
+    assert lines[0]["city"] == "Riyadh"
+    assert lines[0]["total_halalas"] == 51750
+    assert lines[1]["order_id"] == "ORD-LIVE-SAUDI-002"
+    assert lines[1]["city"] == "Dammam"
+    assert lines[1]["total_halalas"] == 32200
+
 
