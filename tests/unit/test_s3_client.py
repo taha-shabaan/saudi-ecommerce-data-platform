@@ -17,26 +17,27 @@ def s3_env():
     """Spin up simulated in-memory AWS S3 service via moto."""
     with mock_aws():
         bucket_name = "test-saudi-ecom-lake"
-        s3 = boto3.client("s3", region_name="me-central-1")
+        s3 = boto3.client("s3", region_name="eu-west-1")
         s3.create_bucket(
             Bucket=bucket_name,
-            CreateBucketConfiguration={"LocationConstraint": "me-central-1"},
+            CreateBucketConfiguration={"LocationConstraint": "eu-west-1"},
         )
         yield {"bucket": bucket_name, "client": s3}
 
 
-def test_build_raw_partition_key():
+def test_build_bronze_partition_key():
     """Verify deterministic partition path structure conforming to data lake contract."""
-    client = S3Client(bucket_name="dummy-bucket")
+    
+    client = S3Client(bucket_name="dummy-bucket", region_name="eu-west-1")
     dt = datetime(2026, 10, 27, 14, 30, 0, tzinfo=UTC)
 
-    key = client.build_raw_partition_key(
+    key = client.build_bronze_partition_key(
         source="postgres",
         entity="orders",
         filename="orders_extract_01.json.gz",
         partition_date=dt,
     )
-    assert key == "raw/postgres/orders/year=2026/month=10/day=27/orders_extract_01.json.gz"
+    assert key == "bronze/postgres/orders/year=2026/month=10/day=27/orders_extract_01.json.gz"
 
 
 def test_upload_json_records_compressed(s3_env):
@@ -58,7 +59,7 @@ def test_upload_json_records_compressed(s3_env):
         filename_prefix="batch_01",
     )
 
-    assert s3_key.startswith("raw/postgres/orders/year=2026/month=10/day=27/batch_01_")
+    assert s3_key.startswith("bronze/postgres/orders/year=2026/month=10/day=27/batch_01_")
     assert s3_key.endswith(".json.gz")
 
     # Read back directly from S3 and decompress
@@ -97,9 +98,9 @@ def test_list_objects_and_check_existence(s3_env):
     )
 
     assert client.object_exists(key=key) is True
-    assert client.object_exists(key="raw/postgres/orders/does_not_exist.json.gz") is False
+    assert client.object_exists(key="bronze/postgres/orders/does_not_exist.json.gz") is False
 
-    keys = client.list_objects(prefix="raw/operational_api/payments/year=2026/month=10/")
+    keys = client.list_objects(prefix="bronze/operational_api/payments/year=2026/month=10/")
     assert len(keys) == 1
     assert keys[0] == key
 
@@ -148,7 +149,7 @@ def test_live_aws_s3_upload_and_read():
     )
 
     assert client.object_exists(key) is True
-    listed = client.list_objects(prefix="raw/postgres/orders/")
+    listed = client.list_objects(prefix="bronze/postgres/orders/")
     assert key in listed
 
 

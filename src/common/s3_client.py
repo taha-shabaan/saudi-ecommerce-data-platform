@@ -53,17 +53,17 @@ class S3Client:
             **session_kwargs,
         )
 
-    def build_raw_partition_key(
+    def build_bronze_partition_key(
         self,
         source: str,
         entity: str,
         filename: str,
         partition_date: datetime | None = None,
     ) -> str:
-        """Construct deterministic Hive-style S3 object key for Raw Landing Zone.
+        """Construct deterministic Hive-style S3 object key for Bronze Zone.
 
         Format:
-            raw/{source}/{entity}/year=YYYY/month=MM/day=DD/{filename}
+            bronze/{source}/{entity}/year=YYYY/month=MM/day=DD/{filename}
         """
         dt = partition_date or datetime.now(UTC)
         year = dt.strftime("%Y")
@@ -74,7 +74,7 @@ class S3Client:
         entity_clean = entity.strip().lower()
         filename_clean = filename.strip()
 
-        return f"raw/{source_clean}/{entity_clean}/year={year}/month={month}/day={day}/{filename_clean}"
+        return f"bronze/{source_clean}/{entity_clean}/year={year}/month={month}/day={day}/{filename_clean}"
 
     def upload_json_records(
         self,
@@ -100,7 +100,7 @@ class S3Client:
         prefix = filename_prefix or f"{entity}_extract"
         filename = f"{prefix}_{timestamp_slug}.json.gz"
 
-        s3_key = self.build_raw_partition_key(
+        s3_key = self.build_bronze_partition_key(
             source=source,
             entity=entity,
             filename=filename,

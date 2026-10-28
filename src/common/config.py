@@ -3,9 +3,14 @@
 Loads configuration from environment variables and `.env` files with strict type enforcement.
 """
 
-from typing import Literal, Optional
+from typing import Literal
+
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Ensure .env file is loaded into os.environ
+load_dotenv()
 
 
 class AppSettings(BaseSettings):
@@ -33,18 +38,18 @@ class AppSettings(BaseSettings):
     )
 
     # AWS S3 Data Lake Configuration
-    aws_access_key_id: Optional[str] = Field(default=None, description="AWS IAM Access Key ID")
-    aws_secret_access_key: Optional[str] = Field(default=None, description="AWS IAM Secret Access Key")
-    aws_default_region: str = Field(default="me-central-1", description="Target AWS region")
+    aws_access_key_id: str | None = Field(default=None, description="AWS IAM Access Key ID")
+    aws_secret_access_key: str | None = Field(default=None, description="AWS IAM Secret Access Key")
+    aws_default_region: str = Field(default="eu-west-1", description="Target AWS region")
     env_storage_bucket: str = Field(
         default="saudi-ecommerce-data-lake-dev",
         description="Primary S3 Data Lake bucket name",
     )
 
     # Snowflake Cloud Data Warehouse Configuration
-    snowflake_account: Optional[str] = Field(default=None, description="Snowflake account locator/identifier")
-    snowflake_user: Optional[str] = Field(default=None, description="Snowflake user")
-    snowflake_password: Optional[str] = Field(default=None, description="Snowflake password")
+    snowflake_account: str | None = Field(default=None, description="Snowflake account locator/identifier")
+    snowflake_user: str | None = Field(default=None, description="Snowflake user")
+    snowflake_password: str | None = Field(default=None, description="Snowflake password")
     snowflake_role: str = Field(default="SYSADMIN", description="Default Snowflake role")
     snowflake_warehouse: str = Field(default="COMPUTE_WH", description="Snowflake virtual warehouse")
     snowflake_database: str = Field(default="SAUDI_ECOM_DW", description="Analytics database")
