@@ -53,6 +53,7 @@ Thumbs.db
 
 # Local data & pipeline artifacts
 data/
+sources/
 *.parquet
 *.csv
 *.xlsx
