@@ -1,12 +1,13 @@
 """Unit test suite for Saudi synthetic data generator."""
 
 import os
+
 from src.ingestion.synthetic_data_generator import (
-    SaudiSyntheticGenerator,
-    SAUDI_REGIONS,
-    SAUDI_PRODUCTS,
-    PAYMENT_METHODS,
     ORDER_STATUSES,
+    PAYMENT_METHODS,
+    SAUDI_PRODUCTS,
+    SAUDI_REGIONS,
+    SaudiSyntheticGenerator,
 )
 
 

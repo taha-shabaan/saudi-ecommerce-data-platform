@@ -10,11 +10,11 @@ Generates localized, high-fidelity synthetic eCommerce datasets for Saudi Arabia
 - Seeding utilities for local PostgreSQL databases and operational files (Excel/CSV).
 """
 
-from datetime import datetime, timedelta, timezone
 import os
 import random
 import sys
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 # Ensure project root is in sys.path when executed directly as a script
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -23,6 +23,8 @@ if PROJECT_ROOT not in sys.path:
 
 import pandas as pd
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
+
 from src.common.config import settings
 from src.common.logging import generate_correlation_id, get_logger
 
@@ -121,15 +123,15 @@ STATUS_WEIGHTS = [0.70, 0.12, 0.08, 0.06, 0.04]
 class SaudiSyntheticGenerator:
     """High-fidelity localized synthetic data generator for the Saudi eCommerce Platform."""
 
-    def __init__(self, seed: Optional[int] = 42) -> None:
+    def __init__(self, seed: int | None = 42) -> None:
         if seed is not None:
             random.seed(seed)
         self.correlation_id = generate_correlation_id("gen_data")
 
-    def generate_customers(self, count: int = 100) -> List[Dict[str, Any]]:
+    def generate_customers(self, count: int = 100) -> list[dict[str, Any]]:
         """Generate customer records with authentic Saudi names and addresses."""
         customers = []
-        base_time = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        base_time = datetime(2025, 1, 1, 0, 0, 0, tzinfo=UTC)
 
         for i in range(1, count + 1):
             name_ar_tuple = random.choice(FIRST_NAMES)
@@ -139,9 +141,9 @@ class SaudiSyntheticGenerator:
             full_name_en = f"{name_ar_tuple[1]} {last_name_tuple[1]}"
 
             # Weighted region selection
-            region_weights = [r["weight"] for r in SAUDI_REGIONS]
-            region = random.choices(SAUDI_REGIONS, weights=region_weights, k=1)[0]
-            city = random.choice(region["cities"])
+            region_weights = [cast(float, r["weight"]) for r in SAUDI_REGIONS]
+            region: dict[str, Any] = random.choices(SAUDI_REGIONS, weights=region_weights, k=1)[0]
+            city: str = random.choice(region["cities"])
 
             # Saudi phone number: +9665 + 8 random digits
             phone = f"+9665{random.randint(10000000, 99999999)}"
@@ -168,12 +170,12 @@ class SaudiSyntheticGenerator:
         logger.info(f"Generated {len(customers)} synthetic Saudi customers.")
         return customers
 
-    def generate_products(self) -> List[Dict[str, Any]]:
+    def generate_products(self) -> list[dict[str, Any]]:
         """Generate product catalog with Halalas integer pricing."""
         products = []
         for i, item in enumerate(SAUDI_PRODUCTS, start=1):
-            unit_price_halalas = int(round(item["price_sar"] * 100))
-            unit_cost_halalas = int(round(item["cost_sar"] * 100))
+            unit_price_halalas = round(cast(float, item["price_sar"]) * 100)
+            unit_cost_halalas = round(cast(float, item["cost_sar"]) * 100)
 
             products.append({
                 "product_id": f"PROD-{i:04d}",
@@ -191,10 +193,10 @@ class SaudiSyntheticGenerator:
 
     def generate_transactions(
         self,
-        customers: List[Dict[str, Any]],
-        products: List[Dict[str, Any]],
+        customers: list[dict[str, Any]],
+        products: list[dict[str, Any]],
         order_count: int = 500,
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         """Generate orders, order items, and associated payment records."""
         orders = []
         order_items = []
@@ -235,7 +237,7 @@ class SaudiSyntheticGenerator:
                 item_counter += 1
 
             # 15% VAT on subtotal
-            vat_halalas = int(round(subtotal_halalas * 0.15))
+            vat_halalas = round(subtotal_halalas * 0.15)
 
             # Flat shipping fee: free above 200 SAR (20000 Halalas), else 25 SAR (2500 Halalas)
             shipping_fee_halalas = 0 if subtotal_halalas >= 20000 else 2500
@@ -243,7 +245,7 @@ class SaudiSyntheticGenerator:
             # Promotional discount (optional 10% coupon applied 20% of the time)
             has_coupon = random.random() < 0.20
             coupon_code = "RAMADAN2026" if has_coupon else None
-            discount_halalas = int(round(subtotal_halalas * 0.10)) if has_coupon else 0
+            discount_halalas = round(subtotal_halalas * 0.10) if has_coupon else 0
 
             total_halalas = subtotal_halalas - discount_halalas + vat_halalas + shipping_fee_halalas
 
@@ -323,7 +325,7 @@ class SaudiSyntheticGenerator:
 
     def seed_postgres(
         self,
-        connection_url: Optional[str] = None,
+        connection_url: str | None = None,
         customer_count: int = 100,
         order_count: int = 500,
     ) -> bool:
@@ -421,7 +423,7 @@ class SaudiSyntheticGenerator:
 
             logger.info("Successfully seeded customers, products, orders, and order_items to PostgreSQL.")
             return True
-        except Exception as exc:
+        except (OSError, SQLAlchemyError) as exc:
             logger.warning(f"Could not connect to live PostgreSQL: {exc}. (This is normal when running outside container)")
             return False
 

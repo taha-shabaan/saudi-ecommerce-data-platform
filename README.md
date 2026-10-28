@@ -253,19 +253,20 @@ The platform ingests seven core business entities across three distinct extracti
 ---
 
 ### 2. S3 Storage Client Engine (`src/common/s3_client.py`)
-To prevent code duplication (**DRY principle**), the lakehouse storage layer is encapsulated behind a unified, high-leverage client:
+To prevent code duplication (**DRY principle**), the lakehouse storage layer is encapsulated behind a unified, high-leverage client with **Snappy Parquet as the first-choice upload format**:
 
-* **Dual-Format Serialization**:
-  * **Snappy Parquet (`upload_parquet_records`)**: High-throughput columnar serialization for analytical tables (`orders`, `customers`, `shipments`). Accepts `list[dict]`, `pandas.DataFrame`, or `pyarrow.Table`.
-  * **Streaming Gzip JSON Lines (`upload_json_records`)**: Serializes nested or polymorphic payloads into compressed UTF-8 JSON lines (`.json.gz`) without writing intermediate files to disk.
+* **First-Choice Ingestion (`upload_records` & `upload_parquet_records`)**:
+  * **Primary Option — Columnar Snappy Parquet**: High-throughput columnar serialization for analytical tables (`orders`, `customers`, `products`, `order_items`, `shipments`). Accepts `list[dict]`, `pandas.DataFrame`, or `pyarrow.Table`, defaulting directly to the immutable **Raw Zone** (`raw/`).
+  * **Secondary Option — Streaming Gzip JSON Lines (`upload_json_records`)**: Serializes nested or polymorphic payloads into compressed UTF-8 JSON lines (`.json.gz`) without intermediate disk writes.
 * **Deterministic Partition Key Calculation**:
   ```python
-  s3_key = client.build_partition_key(
+  # Defaults directly to the Raw Zone ('raw/')
+  s3_key = client.upload_records(
+      records=records,
       source="postgres",
       entity="orders",
-      filename="orders_extract_20261028_100000.parquet",
-      zone="raw",
-      partition_date=datetime.now(UTC),
+      file_format="parquet",  # Primary first-choice format (default)
+      zone="raw",             # Primary Lakehouse zone (default)
   )
   # Result: raw/postgres/orders/year=2026/month=10/day=28/orders_extract_20261028_100000.parquet
   ```

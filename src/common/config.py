@@ -3,7 +3,6 @@
 Loads configuration from environment variables and `.env` files with strict type enforcement.
 """
 
-import os
 from typing import Literal
 
 from dotenv import load_dotenv
