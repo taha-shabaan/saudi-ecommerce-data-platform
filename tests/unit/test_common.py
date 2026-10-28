@@ -98,7 +98,10 @@ class TestCommonLogging:
 class TestCommonConfig:
     """Test Pydantic settings loading and defaults."""
 
-    def test_default_settings(self):
+    def test_default_settings(self, monkeypatch):
+        # Clear environment overrides to test pure default values
+        monkeypatch.setenv("ENV_STORAGE_BUCKET", "saudi-ecommerce-data-lake-dev")
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "eu-west-1")
         config = AppSettings(
             _env_file=None,  # ignore local .env for isolated test
             postgres_host="test_host",
