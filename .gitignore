@@ -54,6 +54,8 @@ Thumbs.db
 # Local data & pipeline artifacts
 data/
 sources/
+metadata/*.json
+voicebox/
 *.parquet
 *.csv
 *.xlsx

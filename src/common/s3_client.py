@@ -98,22 +98,6 @@ class S3Client:
             partition_date=partition_date,
         )
 
-    def build_bronze_partition_key(
-        self,
-        source: str,
-        entity: str,
-        filename: str,
-        partition_date: datetime | None = None,
-    ) -> str:
-        """Construct deterministic Hive-style S3 object key for backwards compatibility."""
-        return self.build_partition_key(
-            source=source,
-            entity=entity,
-            filename=filename,
-            zone="raw",
-            partition_date=partition_date,
-        )
-
     def _upload_records(
         self,
         records: list[dict[str, Any]] | Any,

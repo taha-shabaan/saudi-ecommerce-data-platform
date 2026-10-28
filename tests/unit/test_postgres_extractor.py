@@ -1,11 +1,13 @@
 """Unit tests for relational high-watermark extractor and watermark state store."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 
-from src.common.exceptions import PermanentError
+from src.common.exceptions import PermanentError, TransientError
 from src.ingestion.postgres_extractor import (
     ExtractionResult,
     InMemoryWatermarkStore,
@@ -110,15 +112,17 @@ class MockS3Client:
     def __init__(self):
         self.uploads = []
 
-    def upload_parquet_records(self, records, source, entity, zone="raw", partition_date=None, **kwargs):
-        key = f"{zone}/{source}/{entity}/year=2026/month=10/day=28/{entity}_test.parquet"
-        self.uploads.append({"key": key, "records": records, "format": "parquet"})
+    def upload_records(self, records, source, entity, file_format="parquet", zone="raw", partition_date=None, **kwargs):
+        ext = "parquet" if file_format.lower() == "parquet" else "json.gz"
+        key = f"{zone}/{source}/{entity}/year=2026/month=10/day=28/{entity}_test.{ext}"
+        self.uploads.append({"key": key, "records": records, "format": file_format})
         return key
 
+    def upload_parquet_records(self, records, source, entity, zone="raw", partition_date=None, **kwargs):
+        return self.upload_records(records, source, entity, file_format="parquet", zone=zone, partition_date=partition_date, **kwargs)
+
     def upload_json_records(self, records, source, entity, zone="raw", partition_date=None, **kwargs):
-        key = f"{zone}/{source}/{entity}/year=2026/month=10/day=28/{entity}_test.json.gz"
-        self.uploads.append({"key": key, "records": records, "format": "json.gz"})
-        return key
+        return self.upload_records(records, source, entity, file_format="json", zone=zone, partition_date=partition_date, **kwargs)
 
 
 def test_in_memory_watermark_store():
@@ -230,3 +234,113 @@ def test_live_postgres_container_extraction():
     assert results["customers"].record_count >= 100
     assert results["orders"].record_count >= 500
     assert len(mock_s3.uploads) == 4
+
+
+def test_backfill_mode_does_not_mutate_watermark(in_memory_db):
+    """Verify that is_backfill=True extracts historical data without altering stored high-watermark."""
+    mock_s3 = MockS3Client()
+    current_stored = datetime(2026, 10, 28, 18, 0, 0, tzinfo=UTC)
+    watermark_store = InMemoryWatermarkStore(default_watermark=current_stored)
+    watermark_store.update_watermark("orders", current_stored)
+
+    extractor = PostgresExtractor(
+        engine=in_memory_db,
+        s3_client=mock_s3,
+        watermark_store=watermark_store,
+    )
+
+    # Historical backfill window (earlier than current stored watermark)
+    backfill_start = datetime(2026, 10, 28, 9, 0, 0, tzinfo=UTC)
+    backfill_end = datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC)
+    result = extractor.extract_entity(
+        "orders",
+        start_watermark=backfill_start,
+        end_watermark=backfill_end,
+        is_backfill=True,
+    )
+
+    assert result.record_count >= 1
+    # Watermark must remain at 18:00:00, not regressed to 12:00:00
+    assert watermark_store.get_watermark("orders") == current_stored
+
+
+def test_watermark_regression_guard_on_earlier_end_watermark(in_memory_db):
+    """Verify stored watermark does not regress even if is_backfill is not explicitly passed."""
+    mock_s3 = MockS3Client()
+    current_stored = datetime(2026, 10, 28, 18, 0, 0, tzinfo=UTC)
+    watermark_store = InMemoryWatermarkStore(default_watermark=current_stored)
+    watermark_store.update_watermark("orders", current_stored)
+
+    extractor = PostgresExtractor(
+        engine=in_memory_db,
+        s3_client=mock_s3,
+        watermark_store=watermark_store,
+    )
+
+    earlier_end = datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC)
+    extractor.extract_entity("orders", end_watermark=earlier_end)
+    assert watermark_store.get_watermark("orders") == current_stored
+
+
+def test_parquet_timestamp_native_datetime_retained(in_memory_db):
+    """Verify Parquet extraction retains native datetime objects, while JSON stringifies."""
+    mock_s3 = MockS3Client()
+    store = InMemoryWatermarkStore(default_watermark=datetime(2026, 10, 28, 9, 0, 0, tzinfo=UTC))
+    extractor = PostgresExtractor(engine=in_memory_db, s3_client=mock_s3, watermark_store=store)
+
+    # 1. Parquet extraction
+    extractor.extract_entity("orders", file_format="parquet", end_watermark=datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC))
+    parquet_records = mock_s3.uploads[-1]["records"]
+    assert len(parquet_records) >= 1
+    created_at_val = parquet_records[0]["created_at"]
+    # Must be native datetime instance, not string
+    assert isinstance(created_at_val, datetime)
+
+    # 2. JSON extraction (reset watermark to 09:00 for test)
+    store.update_watermark("orders", datetime(2026, 10, 28, 9, 0, 0, tzinfo=UTC))
+    extractor.extract_entity("orders", file_format="json", end_watermark=datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC))
+    json_records = mock_s3.uploads[-1]["records"]
+    assert isinstance(json_records[0]["created_at"], str)
+
+
+def test_transient_database_error_retry_and_escalation():
+    """Verify extractor catches operational DB errors, retries with backoff, and escalates to TransientError."""
+    failing_engine = MagicMock()
+    # Mock connect to raise OperationalError
+    failing_engine.connect.side_effect = OperationalError("connection refused", params=None, orig=Exception("timeout"))
+    failing_engine.dialect.name = "postgresql"
+
+    extractor = PostgresExtractor(engine=failing_engine, s3_client=MockS3Client())
+
+    with pytest.raises(TransientError) as exc_info:
+        extractor._execute_query_with_retry(
+            query_sql="SELECT 1",
+            params={},
+            id_correlation="test_corr_123",
+            max_attempts=2,
+            base_wait_seconds=0.01,
+        )
+
+    assert exc_info.value.error_code == "DATABASE_TRANSIENT_FAILURE"
+    assert failing_engine.connect.call_count == 2
+
+
+def test_programming_error_raises_permanent_error():
+    """Verify SQL syntax or schema mismatch errors raise PermanentError immediately without retrying."""
+    failing_engine = MagicMock()
+    failing_engine.connect.side_effect = ProgrammingError("syntax error in SQL", params=None, orig=Exception("syntax"))
+    failing_engine.dialect.name = "postgresql"
+
+    extractor = PostgresExtractor(engine=failing_engine, s3_client=MockS3Client())
+
+    with pytest.raises(PermanentError) as exc_info:
+        extractor._execute_query_with_retry(
+            query_sql="INVALID SQL SYNTAX",
+            params={},
+            id_correlation="test_corr_syntax",
+            max_attempts=3,
+        )
+
+    assert exc_info.value.error_code == "SQL_SYNTAX_OR_SCHEMA_ERROR"
+    # PermanentError must not retry!
+    assert failing_engine.connect.call_count == 1
