@@ -14,7 +14,7 @@ import os
 import random
 import sys
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 # Ensure project root is in sys.path when executed directly as a script
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -141,9 +141,9 @@ class SaudiSyntheticGenerator:
             full_name_en = f"{name_ar_tuple[1]} {last_name_tuple[1]}"
 
             # Weighted region selection
-            region_weights = [r["weight"] for r in SAUDI_REGIONS]
-            region = random.choices(SAUDI_REGIONS, weights=region_weights, k=1)[0]
-            city = random.choice(region["cities"])
+            region_weights = [cast(float, r["weight"]) for r in SAUDI_REGIONS]
+            region: dict[str, Any] = random.choices(SAUDI_REGIONS, weights=region_weights, k=1)[0]
+            city: str = random.choice(region["cities"])
 
             # Saudi phone number: +9665 + 8 random digits
             phone = f"+9665{random.randint(10000000, 99999999)}"
@@ -174,8 +174,8 @@ class SaudiSyntheticGenerator:
         """Generate product catalog with Halalas integer pricing."""
         products = []
         for i, item in enumerate(SAUDI_PRODUCTS, start=1):
-            unit_price_halalas = round(item["price_sar"] * 100)
-            unit_cost_halalas = round(item["cost_sar"] * 100)
+            unit_price_halalas = round(cast(float, item["price_sar"]) * 100)
+            unit_cost_halalas = round(cast(float, item["cost_sar"]) * 100)
 
             products.append({
                 "product_id": f"PROD-{i:04d}",

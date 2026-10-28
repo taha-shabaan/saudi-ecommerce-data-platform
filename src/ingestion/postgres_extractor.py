@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import (
@@ -72,7 +72,8 @@ class JsonFileWatermarkStore(WatermarkStore):
             return {}
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                return cast(dict[str, str], data) if isinstance(data, dict) else {}
         except (OSError, json.JSONDecodeError) as err:
             logger.warning(
                 f"Could not read watermark file {self.file_path}: {err}. Returning empty state.",
