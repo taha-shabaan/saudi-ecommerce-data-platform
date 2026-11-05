@@ -6,12 +6,12 @@ Adheres to enterprise observability standards:
 - Attaches correlation identifiers (`id_correlation`, `id_trace`) across execution steps.
 """
 
-from datetime import datetime, timezone
 import json
 import logging
 import sys
-from typing import Any, Dict, Optional
 import uuid
+from datetime import UTC, datetime
+from typing import Any
 
 # Keys that must never appear in raw application logs
 SENSITIVE_KEYS = {
@@ -47,8 +47,8 @@ class JSONFormatter(logging.Formatter):
     """Custom formatter producing structured JSON lines."""
 
     def format(self, record: logging.LogRecord) -> str:
-        log_payload: Dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+        log_payload: dict[str, Any] = {
+            "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

@@ -2,7 +2,7 @@
 
 import json
 import logging
-import pytest
+
 from src.common.config import AppSettings
 from src.common.exceptions import (
     DataQualityError,
@@ -10,7 +10,11 @@ from src.common.exceptions import (
     PlatformError,
     TransientError,
 )
-from src.common.logging import JSONFormatter, generate_correlation_id, get_logger, sanitize_payload
+from src.common.logging import (
+    JSONFormatter,
+    generate_correlation_id,
+    sanitize_payload,
+)
 
 
 class TestCommonExceptions:
@@ -82,8 +86,8 @@ class TestCommonLogging:
             args=(),
             exc_info=None,
         )
-        setattr(record, "id_correlation", "wf_test_123")
-        setattr(record, "payload", {"total_halalas": 15000, "password": "super_secret"})
+        record.id_correlation = "wf_test_123"
+        record.payload = {"total_halalas": 15000, "password": "super_secret"}
 
         output = formatter.format(record)
         parsed = json.loads(output)

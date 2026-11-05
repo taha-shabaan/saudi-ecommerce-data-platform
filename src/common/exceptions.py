@@ -6,7 +6,7 @@ Following the platform error-handling standard:
 - DataQualityError: Circuit breaker exceptions when Tier 1 invariant assertions fail.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class PlatformError(Exception):
@@ -16,8 +16,8 @@ class PlatformError(Exception):
         self,
         message: str,
         error_code: str = "INTERNAL_PLATFORM_ERROR",
-        id_correlation: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
+        id_correlation: str | None = None,
+        context: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -25,7 +25,7 @@ class PlatformError(Exception):
         self.id_correlation = id_correlation
         self.context = context or {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize error details for structured JSON logging."""
         return {
             "error_class": self.__class__.__name__,
@@ -43,8 +43,8 @@ class TransientError(PlatformError):
         self,
         message: str,
         error_code: str = "TRANSIENT_UPSTREAM_ERROR",
-        id_correlation: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
+        id_correlation: str | None = None,
+        context: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message, error_code=error_code, id_correlation=id_correlation, context=context)
 
@@ -56,8 +56,8 @@ class PermanentError(PlatformError):
         self,
         message: str,
         error_code: str = "PERMANENT_CONTRACT_ERROR",
-        id_correlation: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
+        id_correlation: str | None = None,
+        context: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message, error_code=error_code, id_correlation=id_correlation, context=context)
 
@@ -69,8 +69,8 @@ class DataQualityError(PlatformError):
         self,
         message: str,
         error_code: str = "DATA_QUALITY_CIRCUIT_BREAKER",
-        id_correlation: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
+        id_correlation: str | None = None,
+        context: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message, error_code=error_code, id_correlation=id_correlation, context=context)
 

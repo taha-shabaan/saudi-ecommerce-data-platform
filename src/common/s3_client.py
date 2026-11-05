@@ -2,10 +2,11 @@
 
 Provides a robust, production-grade interface for landing data into AWS S3 (or MinIO):
 - Enforces deterministic Hive-style partition paths:
-  `raw/{source}/{entity}/year=YYYY/month=MM/day=DD/{filename}.json.gz`
-- Streams records into in-memory gzipped JSON Lines (UTF-8) with zero disk bloat.
+  `raw/{source}/{entity}/year=YYYY/month=MM/day=DD/{filename}.parquet`
+- Primary ingestion option: High-throughput Snappy-compressed Parquet via PyArrow.
+- Secondary ingestion option: In-memory gzipped JSON Lines (`.json.gz`) with zero disk bloat.
 - Handles retries on transient connection or throttling failures with exponential backoff.
-- Tracks execution correlation IDs and structured audit logs.
+- Tracks execution correlation IDs and structured audit logs conforming to GLOSSARY.md.
 """
 
 import gzip
@@ -61,7 +62,7 @@ class S3Client:
         source: str,
         entity: str,
         filename: str,
-        zone: str = "bronze",
+        zone: str = "raw",
         partition_date: datetime | None = None,
     ) -> str:
         """Construct deterministic Hive-style S3 object key.
@@ -81,19 +82,19 @@ class S3Client:
 
         return f"{zone_clean}/{source_clean}/{entity_clean}/year={year}/month={month}/day={day}/{filename_clean}"
 
-    def build_bronze_partition_key(
+    def build_raw_partition_key(
         self,
         source: str,
         entity: str,
         filename: str,
         partition_date: datetime | None = None,
     ) -> str:
-        """Construct deterministic Hive-style S3 object key for Bronze Zone."""
+        """Construct deterministic Hive-style S3 object key for the Raw Zone."""
         return self.build_partition_key(
             source=source,
             entity=entity,
             filename=filename,
-            zone="bronze",
+            zone="raw",
             partition_date=partition_date,
         )
 
@@ -105,7 +106,7 @@ class S3Client:
         extension: str,
         serializer_func: Callable[[Any], bytes],
         content_type: str,
-        zone: str = "bronze",
+        zone: str = "raw",
         partition_date: datetime | None = None,
         filename_prefix: str | None = None,
         id_correlation: str | None = None,
@@ -168,36 +169,49 @@ class S3Client:
         )
         return s3_key
 
-    def upload_json_records(
+    def upload_records(
         self,
-        records: list[dict[str, Any]],
+        records: list[dict[str, Any]] | Any,
         source: str,
         entity: str,
-        zone: str = "bronze",
+        file_format: str = "parquet",
+        zone: str = "raw",
         partition_date: datetime | None = None,
         filename_prefix: str | None = None,
         id_correlation: str | None = None,
+        compression: str = "snappy",
     ) -> str:
-        """Serialize a list of dictionaries to compressed JSON lines (.json.gz) and upload to S3."""
-        def _serialize_json_gz(data: list[dict[str, Any]]) -> bytes:
-            buffer = io.BytesIO()
-            with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0.0) as gz_out:
-                for record in data:
-                    line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
-                    gz_out.write(line.encode("utf-8"))
-            return buffer.getvalue()
+        """First-choice upload interface to land datasets into the S3 Data Lake.
 
-        return self._upload_records(
-            records=records,
-            source=source,
-            entity=entity,
-            extension="json.gz",
-            serializer_func=_serialize_json_gz,
-            content_type="application/gzip",
-            zone=zone,
-            partition_date=partition_date,
-            filename_prefix=filename_prefix,
+        Defaults to columnar Snappy Parquet in the Raw Zone ('raw/').
+        """
+        clean_format = file_format.strip().lower()
+        if clean_format == "parquet":
+            return self.upload_parquet_records(
+                records=records,
+                source=source,
+                entity=entity,
+                zone=zone,
+                partition_date=partition_date,
+                filename_prefix=filename_prefix,
+                id_correlation=id_correlation,
+                compression=compression,
+            )
+        if clean_format in ("json", "json.gz"):
+            return self.upload_json_records(
+                records=records,
+                source=source,
+                entity=entity,
+                zone=zone,
+                partition_date=partition_date,
+                filename_prefix=filename_prefix,
+                id_correlation=id_correlation,
+            )
+        raise PermanentError(
+            message=f"Unsupported lake upload format '{file_format}'. Supported formats: 'parquet', 'json'.",
+            error_code="UNSUPPORTED_STORAGE_FORMAT",
             id_correlation=id_correlation,
+            context={"format": file_format, "source": source, "entity": entity},
         )
 
     def upload_parquet_records(
@@ -205,13 +219,13 @@ class S3Client:
         records: list[dict[str, Any]] | Any,
         source: str,
         entity: str,
-        zone: str = "bronze",
+        zone: str = "raw",
         partition_date: datetime | None = None,
         filename_prefix: str | None = None,
         id_correlation: str | None = None,
         compression: str = "snappy",
     ) -> str:
-        """Serialize records (list of dicts, pyarrow Table, or pandas DataFrame) to Parquet and upload to S3."""
+        """Primary upload option: serialize records to Snappy-compressed Parquet and upload to S3."""
         def _serialize_parquet(data: Any) -> bytes:
             if isinstance(data, list):
                 table = pa.Table.from_pylist(data)
@@ -233,6 +247,38 @@ class S3Client:
             extension="parquet",
             serializer_func=_serialize_parquet,
             content_type="application/vnd.apache.parquet",
+            zone=zone,
+            partition_date=partition_date,
+            filename_prefix=filename_prefix,
+            id_correlation=id_correlation,
+        )
+
+    def upload_json_records(
+        self,
+        records: list[dict[str, Any]],
+        source: str,
+        entity: str,
+        zone: str = "raw",
+        partition_date: datetime | None = None,
+        filename_prefix: str | None = None,
+        id_correlation: str | None = None,
+    ) -> str:
+        """Secondary upload option: serialize records to compressed JSON lines (.json.gz) and upload to S3."""
+        def _serialize_json_gz(data: list[dict[str, Any]]) -> bytes:
+            buffer = io.BytesIO()
+            with gzip.GzipFile(fileobj=buffer, mode="wb", mtime=0.0) as gz_out:
+                for record in data:
+                    line = json.dumps(record, ensure_ascii=False, default=str) + "\n"
+                    gz_out.write(line.encode("utf-8"))
+            return buffer.getvalue()
+
+        return self._upload_records(
+            records=records,
+            source=source,
+            entity=entity,
+            extension="json.gz",
+            serializer_func=_serialize_json_gz,
+            content_type="application/gzip",
             zone=zone,
             partition_date=partition_date,
             filename_prefix=filename_prefix,
