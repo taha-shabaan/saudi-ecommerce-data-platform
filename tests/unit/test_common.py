@@ -93,6 +93,7 @@ class TestCommonLogging:
         parsed = json.loads(output)
 
         assert parsed["level"] == "INFO"
+        assert parsed["timestamp"].endswith("+03:00")
         assert parsed["message"] == "Order processed successfully"
         assert parsed["id_correlation"] == "wf_test_123"
         assert parsed["payload"]["total_halalas"] == 15000

@@ -9,7 +9,7 @@ import random
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -25,6 +25,7 @@ from src.common.config import settings
 from src.common.exceptions import PermanentError, TransientError
 from src.common.logging import generate_correlation_id, get_logger
 from src.common.s3_client import S3Client
+from src.common.timezone import SAUDI_TIMEZONE, format_ast, saudi_now, to_saudi_time
 
 logger = get_logger("postgres_extractor")
 
@@ -45,7 +46,7 @@ class InMemoryWatermarkStore(WatermarkStore):
     """In-memory watermark store primarily used for isolated unit testing."""
 
     def __init__(self, default_watermark: datetime | None = None) -> None:
-        self.default_watermark = default_watermark or datetime(2026, 1, 1, tzinfo=UTC)
+        self.default_watermark = default_watermark or datetime(2026, 1, 1, tzinfo=SAUDI_TIMEZONE)
         self._watermarks: dict[str, datetime] = {}
 
     def get_watermark(self, entity: str) -> datetime:
@@ -64,7 +65,7 @@ class JsonFileWatermarkStore(WatermarkStore):
         default_watermark: datetime | None = None,
     ) -> None:
         self.file_path = Path(file_path)
-        self.default_watermark = default_watermark or datetime(2026, 1, 1, tzinfo=UTC)
+        self.default_watermark = default_watermark or datetime(2026, 1, 1, tzinfo=SAUDI_TIMEZONE)
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _load_data(self) -> dict[str, str]:
@@ -87,7 +88,7 @@ class JsonFileWatermarkStore(WatermarkStore):
         if ts_str:
             try:
                 dt = datetime.fromisoformat(ts_str)
-                return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+                return to_saudi_time(dt)
             except ValueError as err:
                 logger.warning(
                     f"Corrupted timestamp string '{ts_str}' for entity '{entity}': {err}. Reverting to default watermark.",
@@ -248,11 +249,11 @@ class PostgresExtractor:
 
         correlation_id = id_correlation or generate_correlation_id(f"pg_extract_{clean_entity}")
         start_ts = start_watermark or self.watermark_store.get_watermark(clean_entity)
-        end_ts = end_watermark or datetime.now(UTC)
+        end_ts = end_watermark or saudi_now()
 
         start_time = time.time()
         logger.info(
-            f"Starting incremental extraction for '{clean_entity}' from {start_ts.isoformat()} to {end_ts.isoformat()}"
+            f"Starting incremental extraction for '{clean_entity}' from {format_ast(start_ts)} to {format_ast(end_ts)}"
             + (" (BACKFILL)" if is_backfill else ""),
             extra={"id_correlation": correlation_id, "entity": clean_entity, "is_backfill": is_backfill},
         )
@@ -273,13 +274,13 @@ class PostgresExtractor:
             for col_name, val in row.items():
                 if isinstance(val, datetime):
                     if is_json_format:
-                        row_dict[col_name] = val.isoformat()
+                        row_dict[col_name] = to_saudi_time(val).isoformat()
                     else:
-                        row_dict[col_name] = val if val.tzinfo else val.replace(tzinfo=UTC)
+                        row_dict[col_name] = to_saudi_time(val)
                 elif isinstance(val, str) and not is_json_format and col_name.endswith(("_at", "_date", "_time", "timestamp")):
                     try:
                         parsed_dt = datetime.fromisoformat(val)
-                        row_dict[col_name] = parsed_dt if parsed_dt.tzinfo else parsed_dt.replace(tzinfo=UTC)
+                        row_dict[col_name] = to_saudi_time(parsed_dt)
                     except ValueError:
                         row_dict[col_name] = val
                 else:

@@ -16,6 +16,7 @@ services:
       - "${POSTGRES_PORT:-5436}:5432"
     volumes:
       - postgres_source_data:/var/lib/postgresql/data
+      - ./sql/ddl/01_source_init.sql:/docker-entrypoint-initdb.d/01_source_init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-saudi_ecom_orders}"]
       interval: 10s
