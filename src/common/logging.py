@@ -13,6 +13,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from src.common.timezone import format_ast
+
 # Keys that must never appear in raw application logs
 SENSITIVE_KEYS = {
     "password",
@@ -47,8 +49,10 @@ class JSONFormatter(logging.Formatter):
     """Custom formatter producing structured JSON lines."""
 
     def format(self, record: logging.LogRecord) -> str:
+        now_utc = datetime.now(UTC)
         log_payload: dict[str, Any] = {
-            "timestamp": datetime.now(UTC).isoformat(),
+            "timestamp": now_utc.isoformat(),
+            "timestamp_ast": format_ast(now_utc),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

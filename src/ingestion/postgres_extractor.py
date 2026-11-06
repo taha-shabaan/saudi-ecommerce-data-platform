@@ -25,6 +25,7 @@ from src.common.config import settings
 from src.common.exceptions import PermanentError, TransientError
 from src.common.logging import generate_correlation_id, get_logger
 from src.common.s3_client import S3Client
+from src.common.timezone import format_ast, utc_now
 
 logger = get_logger("postgres_extractor")
 
@@ -248,11 +249,11 @@ class PostgresExtractor:
 
         correlation_id = id_correlation or generate_correlation_id(f"pg_extract_{clean_entity}")
         start_ts = start_watermark or self.watermark_store.get_watermark(clean_entity)
-        end_ts = end_watermark or datetime.now(UTC)
+        end_ts = end_watermark or utc_now()
 
         start_time = time.time()
         logger.info(
-            f"Starting incremental extraction for '{clean_entity}' from {start_ts.isoformat()} to {end_ts.isoformat()}"
+            f"Starting incremental extraction for '{clean_entity}' from {format_ast(start_ts)} AST ({start_ts.isoformat()} UTC) to {format_ast(end_ts)} AST ({end_ts.isoformat()} UTC)"
             + (" (BACKFILL)" if is_backfill else ""),
             extra={"id_correlation": correlation_id, "entity": clean_entity, "is_backfill": is_backfill},
         )

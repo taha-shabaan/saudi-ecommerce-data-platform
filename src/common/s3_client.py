@@ -14,7 +14,7 @@ import io
 import json
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import boto3
@@ -25,6 +25,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from src.common.config import settings
 from src.common.exceptions import PermanentError, TransientError
 from src.common.logging import generate_correlation_id, get_logger
+from src.common.timezone import get_saudi_partition_date
 
 logger = get_logger("s3_client")
 
@@ -70,7 +71,7 @@ class S3Client:
         Format:
             {zone}/{source}/{entity}/year=YYYY/month=MM/day=DD/{filename}
         """
-        dt = partition_date or datetime.now(UTC)
+        dt = get_saudi_partition_date(partition_date)
         year = dt.strftime("%Y")
         month = dt.strftime("%m")
         day = dt.strftime("%d")
@@ -122,7 +123,7 @@ class S3Client:
             )
 
         correlation_id = id_correlation or generate_correlation_id("s3_upload")
-        dt = partition_date or datetime.now(UTC)
+        dt = get_saudi_partition_date(partition_date)
         timestamp_slug = dt.strftime("%Y%m%d_%H%M%S")
         prefix = filename_prefix or f"{entity}_extract"
         filename = f"{prefix}_{timestamp_slug}.{extension}"

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +16,7 @@ import pandas as pd
 from src.common.exceptions import PermanentError
 from src.common.logging import generate_correlation_id, get_logger
 from src.common.s3_client import S3Client
+from src.common.timezone import saudi_now
 
 logger = get_logger("file_landing")
 
@@ -55,7 +56,7 @@ class FileLandingExtractor:
         start_time = time.monotonic()
         path = Path(file_path)
         corr_id = id_correlation or generate_correlation_id()
-        exec_date = execution_date or datetime.now(tz=UTC)
+        exec_date = execution_date or saudi_now()
 
         if not path.exists():
             raise PermanentError(
@@ -172,7 +173,7 @@ class FileLandingExtractor:
         """Discover and batch-land all operational files in a folder into S3 Raw Zone."""
         path = Path(directory_path)
         corr_id = id_correlation or generate_correlation_id()
-        exec_date = execution_date or datetime.now(tz=UTC)
+        exec_date = execution_date or saudi_now()
 
         if not path.exists() or not path.is_dir():
             raise PermanentError(
