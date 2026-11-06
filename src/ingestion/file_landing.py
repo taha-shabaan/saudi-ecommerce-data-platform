@@ -80,7 +80,12 @@ class FileLandingExtractor:
             elif suffix == ".csv":
                 df = pd.read_csv(path)
             elif suffix in (".xlsx", ".xls"):
-                df = pd.read_excel(path, sheet_name=sheet_name if sheet_name is not None else 0)
+                raw_excel = pd.read_excel(path, sheet_name=sheet_name if sheet_name is not None else 0)
+                if isinstance(raw_excel, dict):
+                    first_sheet_name = next(iter(raw_excel.keys()))
+                    df = raw_excel[first_sheet_name]
+                else:
+                    df = raw_excel
             else:
                 raise PermanentError(
                     message=f"Unsupported operational file format '{suffix}'. Supported: .parquet, .csv, .xlsx",
@@ -178,14 +183,20 @@ class FileLandingExtractor:
             )
 
         supported_extensions = {".parquet", ".csv", ".xlsx", ".xls"}
+        extension_priority = {".parquet": 1, ".csv": 2, ".xlsx": 3, ".xls": 4}
+        best_file_by_stem: dict[str, Path] = {}
+
+        for candidate_file in sorted(path.iterdir()):
+            if candidate_file.is_file() and candidate_file.suffix.lower() in supported_extensions:
+                stem = candidate_file.stem
+                ext = candidate_file.suffix.lower()
+                if stem not in best_file_by_stem or extension_priority.get(ext, 99) < extension_priority.get(
+                    best_file_by_stem[stem].suffix.lower(), 99
+                ):
+                    best_file_by_stem[stem] = candidate_file
+
         results: list[FileLandingResult] = []
-
-        candidate_files = sorted(
-            [f for f in path.iterdir() if f.is_file() and f.suffix.lower() in supported_extensions]
-        )
-
-        for file_entry in candidate_files:
-            entity = file_entry.stem
+        for entity, file_entry in sorted(best_file_by_stem.items()):
             result = self.land_file(
                 file_path=file_entry,
                 source=source,

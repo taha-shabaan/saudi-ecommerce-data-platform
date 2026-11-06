@@ -193,4 +193,24 @@ def test_land_directory_batch(s3_env: dict[str, Any], tmp_path: Path):
         assert head["ResponseMetadata"]["HTTPStatusCode"] == 200
 
 
+def test_land_directory_deduplicates_by_stem_preferring_parquet(s3_env: dict[str, Any], tmp_path: Path):
+    """Seam 4: Verify directory landing deduplicates multiple file types for same stem, preferring parquet."""
+    s3_client = S3Client(bucket_name=s3_env["bucket"], region_name="eu-west-1")
+    extractor = FileLandingExtractor(s3_client=s3_client)
+
+    feed_dir = tmp_path / "dedup_feed"
+    feed_dir.mkdir()
+
+    # Both parquet and csv exist for 'shipments'
+    df_ship = pd.DataFrame([{"shipment_id": "SHP-1", "city": "Riyadh"}])
+    df_ship.to_parquet(feed_dir / "shipments.parquet", index=False)
+    df_ship.to_csv(feed_dir / "shipments.csv", index=False)
+
+    results = extractor.land_directory(directory_path=feed_dir, source="logistics")
+    assert len(results) == 1
+    assert results[0].entity == "shipments"
+    assert results[0].file_path.endswith(".parquet")
+
+
+
 
