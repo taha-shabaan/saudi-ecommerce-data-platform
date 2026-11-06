@@ -59,7 +59,7 @@ Operating eCommerce in Saudi Arabia presents unique domain characteristics that 
    * Urban centers (Riyadh, Jeddah, Dammam/Khobar) operate on tight same-day/next-day SLAs.
    * Last-mile logistics across Southern and Northern provinces rely on multi-tier third-party 3PL couriers with differing tracking webhook contracts.
 5. **Service Level Agreements (SLAs)**:
-   * **Execution Cadence & Freshness**: Daily batch pipelines run at `03:00 UTC` (`06:00 AST`) to deliver verified executive dashboards before local business hours.
+   * **Execution Cadence & Freshness**: Daily batch pipelines run at `06:00 AST` (`Asia/Riyadh`) to deliver verified executive dashboards before local business hours.
    * **Data Integrity Gate**: Hard circuit breakers block downstream mart publication if critical financial or structural invariants fail.
 
 ---
@@ -161,7 +161,7 @@ All domain concepts adhere strictly to the ubiquitous vocabulary defined in [`GL
 | **Currency Storage** | **Integer Halalas** | $1\text{ SAR} = 100\text{ Halalas}$. All monetary fields (`total_halalas`, `tax_halalas`, `discount_halalas`) are stored as 64-bit integers; float types are strictly prohibited in data models. |
 | **Presentation Currency** | **Decimal SAR** | Decimal SAR values (`SAR 120.50`) are derived solely in dbt mart reporting views and presentation layers (`total_halalas / 100.0`). |
 | **Tax Calculation** | **15% Saudi VAT** | Tax amounts are calculated and validated in integer arithmetic: `tax_halalas = round(net_amount_halalas * 0.15)`. |
-| **Timezone Alignment** | **UTC Storage / AST Reporting** | All timestamps are captured, transferred, and stored in **UTC (ISO 8601)**. Reporting views convert to **Arabia Standard Time (AST, UTC+3)**. |
+| **Timezone Alignment** | **Canonical Saudi Time (AST)** | All timestamps, watermarks, S3 partition keys, and reporting views operate in **Arabia Standard Time (Asia/Riyadh / AST, UTC+3)**. |
 | **Geographic Standards** | **National Address Taxonomy** | Standardized regions: Riyadh, Makkah (Jeddah/Mecca), Eastern Province (Dammam/Khobar), Medina, Asir, etc., mapped to postal codes and `ISO-3166-2:SA`. |
 
 ---
@@ -379,7 +379,7 @@ flowchart LR
     F --> G["Notification & Metrics<br/>(Slack Alert / Datadog Emission)"]
 ```
 
-* **Execution Cadence**: Runs daily at `03:00 UTC` (`06:00 AST`) to produce fresh reporting before business hours.
+* **Execution Cadence**: Runs daily at `06:00 AST` (`Asia/Riyadh`) to produce fresh reporting before business hours.
 * **Fault Tolerance**: Upstream tasks are configured with 3 exponential-backoff retries for transient connection errors.
 * **Failure Escalation**: Automated Slack webhooks dispatch execution context, run ID, and error logs directly to on-call data engineers.
 
