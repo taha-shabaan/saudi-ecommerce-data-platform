@@ -1,6 +1,6 @@
 """Unit tests for operational file landing extractor (Task 2.4)."""
 
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +10,7 @@ import pytest
 from moto import mock_aws
 
 from src.common.s3_client import S3Client
+from src.common.timezone import SAUDI_TIMEZONE
 from src.ingestion.file_landing import FileLandingExtractor, FileLandingResult
 
 
@@ -40,7 +41,7 @@ def test_land_parquet_and_csv_files(s3_env: dict[str, Any], tmp_path: Path):
     parquet_path = tmp_path / "shipments_batch.parquet"
     sample_shipments.to_parquet(parquet_path, index=False)
 
-    exec_date = datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC)
+    exec_date = datetime(2026, 10, 28, 12, 0, 0, tzinfo=SAUDI_TIMEZONE)
     result_parquet = extractor.land_file(
         file_path=parquet_path,
         source="logistics",
@@ -96,7 +97,7 @@ def test_land_excel_spreadsheet_file(s3_env: dict[str, Any], tmp_path: Path):
     excel_path = tmp_path / "targets_2026.xlsx"
     wb.save(excel_path)
 
-    exec_date = datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC)
+    exec_date = datetime(2026, 10, 28, 12, 0, 0, tzinfo=SAUDI_TIMEZONE)
     result = extractor.land_file(
         file_path=excel_path,
         source="logistics",
@@ -177,7 +178,7 @@ def test_land_directory_batch(s3_env: dict[str, Any], tmp_path: Path):
     df_del = pd.DataFrame([{"delivery_id": "DEL-1", "status": "DELIVERED"}])
     df_del.to_csv(feed_dir / "deliveries.csv", index=False)
 
-    exec_date = datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC)
+    exec_date = datetime(2026, 10, 28, 12, 0, 0, tzinfo=SAUDI_TIMEZONE)
     results = extractor.land_directory(
         directory_path=feed_dir,
         source="logistics",

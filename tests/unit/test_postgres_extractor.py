@@ -1,6 +1,6 @@
 """Unit tests for relational high-watermark extractor and watermark state store."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from src.common.exceptions import PermanentError, TransientError
+from src.common.timezone import SAUDI_TIMEZONE
 from src.ingestion.postgres_extractor import (
     ExtractionResult,
     InMemoryWatermarkStore,
@@ -74,7 +75,7 @@ def in_memory_db():
         )
 
         # Seed sample rows across different timestamps
-        base_time = datetime(2026, 10, 28, 10, 0, 0, tzinfo=UTC)
+        base_time = datetime(2026, 10, 28, 10, 0, 0, tzinfo=SAUDI_TIMEZONE)
         conn.execute(
             text("""
             INSERT INTO customers VALUES
@@ -127,30 +128,30 @@ class MockS3Client:
 
 def test_in_memory_watermark_store():
     """Verify watermark store initializes, reads, and advances timestamps per entity."""
-    store = InMemoryWatermarkStore(default_watermark=datetime(2026, 1, 1, tzinfo=UTC))
-    assert store.get_watermark("orders") == datetime(2026, 1, 1, tzinfo=UTC)
+    store = InMemoryWatermarkStore(default_watermark=datetime(2026, 1, 1, tzinfo=SAUDI_TIMEZONE))
+    assert store.get_watermark("orders") == datetime(2026, 1, 1, tzinfo=SAUDI_TIMEZONE)
 
-    new_ts = datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC)
+    new_ts = datetime(2026, 10, 28, 12, 0, 0, tzinfo=SAUDI_TIMEZONE)
     store.update_watermark("orders", new_ts)
     assert store.get_watermark("orders") == new_ts
-    assert store.get_watermark("customers") == datetime(2026, 1, 1, tzinfo=UTC)
+    assert store.get_watermark("customers") == datetime(2026, 1, 1, tzinfo=SAUDI_TIMEZONE)
 
 
 def test_json_file_watermark_store(tmp_path):
     """Verify JSON file persistence across instantiations."""
     state_file = tmp_path / "watermarks.json"
-    store1 = JsonFileWatermarkStore(file_path=state_file, default_watermark=datetime(2026, 1, 1, tzinfo=UTC))
-    store1.update_watermark("orders", datetime(2026, 10, 28, 15, 0, 0, tzinfo=UTC))
+    store1 = JsonFileWatermarkStore(file_path=state_file, default_watermark=datetime(2026, 1, 1, tzinfo=SAUDI_TIMEZONE))
+    store1.update_watermark("orders", datetime(2026, 10, 28, 15, 0, 0, tzinfo=SAUDI_TIMEZONE))
 
     # Second instance reading from same file
     store2 = JsonFileWatermarkStore(file_path=state_file)
-    assert store2.get_watermark("orders") == datetime(2026, 10, 28, 15, 0, 0, tzinfo=UTC)
+    assert store2.get_watermark("orders") == datetime(2026, 10, 28, 15, 0, 0, tzinfo=SAUDI_TIMEZONE)
 
 
 def test_postgres_extractor_incremental_query(in_memory_db):
     """Verify extractor queries only rows within [start_watermark, end_watermark)."""
     mock_s3 = MockS3Client()
-    watermark_store = InMemoryWatermarkStore(default_watermark=datetime(2026, 10, 28, 9, 0, 0, tzinfo=UTC))
+    watermark_store = InMemoryWatermarkStore(default_watermark=datetime(2026, 10, 28, 9, 0, 0, tzinfo=SAUDI_TIMEZONE))
 
     extractor = PostgresExtractor(
         engine=in_memory_db,
@@ -159,7 +160,7 @@ def test_postgres_extractor_incremental_query(in_memory_db):
     )
 
     # First window: from 09:00 to 11:00 (should match only CUST-1 / ORD-1)
-    end_window_1 = datetime(2026, 10, 28, 11, 0, 0, tzinfo=UTC)
+    end_window_1 = datetime(2026, 10, 28, 11, 0, 0, tzinfo=SAUDI_TIMEZONE)
     res_orders = extractor.extract_entity("orders", end_watermark=end_window_1)
 
     assert isinstance(res_orders, ExtractionResult)
@@ -168,13 +169,13 @@ def test_postgres_extractor_incremental_query(in_memory_db):
     assert watermark_store.get_watermark("orders") == end_window_1
 
     # Second window: from 11:00 to 13:00 (should match ORD-2)
-    end_window_2 = datetime(2026, 10, 28, 13, 0, 0, tzinfo=UTC)
+    end_window_2 = datetime(2026, 10, 28, 13, 0, 0, tzinfo=SAUDI_TIMEZONE)
     res_orders_2 = extractor.extract_entity("orders", end_watermark=end_window_2)
     assert res_orders_2.record_count == 1
     assert watermark_store.get_watermark("orders") == end_window_2
 
     # Third window: from 13:00 to 15:00 (no new rows)
-    end_window_3 = datetime(2026, 10, 28, 15, 0, 0, tzinfo=UTC)
+    end_window_3 = datetime(2026, 10, 28, 15, 0, 0, tzinfo=SAUDI_TIMEZONE)
     res_orders_3 = extractor.extract_entity("orders", end_watermark=end_window_3)
     assert res_orders_3.record_count == 0
     assert res_orders_3.s3_key is None
@@ -185,7 +186,7 @@ def test_postgres_extractor_incremental_query(in_memory_db):
 def test_postgres_extractor_order_items_joining_orders(in_memory_db):
     """Verify order_items extraction joins orders on updated_at window."""
     mock_s3 = MockS3Client()
-    watermark_store = InMemoryWatermarkStore(default_watermark=datetime(2026, 10, 28, 9, 0, 0, tzinfo=UTC))
+    watermark_store = InMemoryWatermarkStore(default_watermark=datetime(2026, 10, 28, 9, 0, 0, tzinfo=SAUDI_TIMEZONE))
 
     extractor = PostgresExtractor(
         engine=in_memory_db,
@@ -193,7 +194,7 @@ def test_postgres_extractor_order_items_joining_orders(in_memory_db):
         watermark_store=watermark_store,
     )
 
-    end_window = datetime(2026, 10, 28, 11, 0, 0, tzinfo=UTC)
+    end_window = datetime(2026, 10, 28, 11, 0, 0, tzinfo=SAUDI_TIMEZONE)
     res_items = extractor.extract_entity("order_items", end_watermark=end_window)
 
     assert res_items.record_count == 1
@@ -221,7 +222,7 @@ def test_live_postgres_container_extraction():
         pytest.skip("Local PostgreSQL container not reachable")
 
     mock_s3 = MockS3Client()
-    store = InMemoryWatermarkStore(default_watermark=datetime(2020, 1, 1, tzinfo=UTC))
+    store = InMemoryWatermarkStore(default_watermark=datetime(2020, 1, 1, tzinfo=SAUDI_TIMEZONE))
     extractor = PostgresExtractor(
         engine=test_engine,
         s3_client=mock_s3,
@@ -239,7 +240,7 @@ def test_live_postgres_container_extraction():
 def test_backfill_mode_does_not_mutate_watermark(in_memory_db):
     """Verify that is_backfill=True extracts historical data without altering stored high-watermark."""
     mock_s3 = MockS3Client()
-    current_stored = datetime(2026, 10, 28, 18, 0, 0, tzinfo=UTC)
+    current_stored = datetime(2026, 10, 28, 18, 0, 0, tzinfo=SAUDI_TIMEZONE)
     watermark_store = InMemoryWatermarkStore(default_watermark=current_stored)
     watermark_store.update_watermark("orders", current_stored)
 
@@ -250,8 +251,8 @@ def test_backfill_mode_does_not_mutate_watermark(in_memory_db):
     )
 
     # Historical backfill window (earlier than current stored watermark)
-    backfill_start = datetime(2026, 10, 28, 9, 0, 0, tzinfo=UTC)
-    backfill_end = datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC)
+    backfill_start = datetime(2026, 10, 28, 9, 0, 0, tzinfo=SAUDI_TIMEZONE)
+    backfill_end = datetime(2026, 10, 28, 12, 0, 0, tzinfo=SAUDI_TIMEZONE)
     result = extractor.extract_entity(
         "orders",
         start_watermark=backfill_start,
@@ -267,7 +268,7 @@ def test_backfill_mode_does_not_mutate_watermark(in_memory_db):
 def test_watermark_regression_guard_on_earlier_end_watermark(in_memory_db):
     """Verify stored watermark does not regress even if is_backfill is not explicitly passed."""
     mock_s3 = MockS3Client()
-    current_stored = datetime(2026, 10, 28, 18, 0, 0, tzinfo=UTC)
+    current_stored = datetime(2026, 10, 28, 18, 0, 0, tzinfo=SAUDI_TIMEZONE)
     watermark_store = InMemoryWatermarkStore(default_watermark=current_stored)
     watermark_store.update_watermark("orders", current_stored)
 
@@ -277,7 +278,7 @@ def test_watermark_regression_guard_on_earlier_end_watermark(in_memory_db):
         watermark_store=watermark_store,
     )
 
-    earlier_end = datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC)
+    earlier_end = datetime(2026, 10, 28, 12, 0, 0, tzinfo=SAUDI_TIMEZONE)
     extractor.extract_entity("orders", end_watermark=earlier_end)
     assert watermark_store.get_watermark("orders") == current_stored
 
@@ -285,11 +286,11 @@ def test_watermark_regression_guard_on_earlier_end_watermark(in_memory_db):
 def test_parquet_timestamp_native_datetime_retained(in_memory_db):
     """Verify Parquet extraction retains native datetime objects, while JSON stringifies."""
     mock_s3 = MockS3Client()
-    store = InMemoryWatermarkStore(default_watermark=datetime(2026, 10, 28, 9, 0, 0, tzinfo=UTC))
+    store = InMemoryWatermarkStore(default_watermark=datetime(2026, 10, 28, 9, 0, 0, tzinfo=SAUDI_TIMEZONE))
     extractor = PostgresExtractor(engine=in_memory_db, s3_client=mock_s3, watermark_store=store)
 
     # 1. Parquet extraction
-    extractor.extract_entity("orders", file_format="parquet", end_watermark=datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC))
+    extractor.extract_entity("orders", file_format="parquet", end_watermark=datetime(2026, 10, 28, 12, 0, 0, tzinfo=SAUDI_TIMEZONE))
     parquet_records = mock_s3.uploads[-1]["records"]
     assert len(parquet_records) >= 1
     created_at_val = parquet_records[0]["created_at"]
@@ -297,8 +298,8 @@ def test_parquet_timestamp_native_datetime_retained(in_memory_db):
     assert isinstance(created_at_val, datetime)
 
     # 2. JSON extraction (reset watermark to 09:00 for test)
-    store.update_watermark("orders", datetime(2026, 10, 28, 9, 0, 0, tzinfo=UTC))
-    extractor.extract_entity("orders", file_format="json", end_watermark=datetime(2026, 10, 28, 12, 0, 0, tzinfo=UTC))
+    store.update_watermark("orders", datetime(2026, 10, 28, 9, 0, 0, tzinfo=SAUDI_TIMEZONE))
+    extractor.extract_entity("orders", file_format="json", end_watermark=datetime(2026, 10, 28, 12, 0, 0, tzinfo=SAUDI_TIMEZONE))
     json_records = mock_s3.uploads[-1]["records"]
     assert isinstance(json_records[0]["created_at"], str)
 

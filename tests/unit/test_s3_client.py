@@ -3,7 +3,7 @@
 import gzip
 import io
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import boto3
@@ -15,6 +15,7 @@ from moto import mock_aws
 from src.common.config import settings
 from src.common.exceptions import PermanentError
 from src.common.s3_client import S3Client
+from src.common.timezone import SAUDI_TIMEZONE, saudi_now
 
 
 @pytest.fixture
@@ -42,7 +43,7 @@ def s3_env():
 def test_build_partition_keys():
     """Verify deterministic partition path structure conforming to data lake contract."""
     client = S3Client(bucket_name="dummy-bucket", region_name="eu-west-1")
-    dt = datetime(2026, 10, 27, 14, 30, 0, tzinfo=UTC)
+    dt = datetime(2026, 10, 27, 14, 30, 0, tzinfo=SAUDI_TIMEZONE)
 
     # Test default build_partition_key (defaults to 'raw' zone)
     key_raw_default = client.build_partition_key(
@@ -78,7 +79,7 @@ def test_upload_records_default_is_parquet(s3_env, sample_saudi_orders):
     bucket_name = s3_env["bucket"]
     client = S3Client(bucket_name=bucket_name)
 
-    dt = datetime(2026, 10, 27, tzinfo=UTC)
+    dt = datetime(2026, 10, 27, tzinfo=SAUDI_TIMEZONE)
     s3_key = client.upload_records(
         records=sample_saudi_orders,
         source="postgres",
@@ -106,7 +107,7 @@ def test_upload_parquet_records(s3_env, sample_saudi_orders):
     bucket_name = s3_env["bucket"]
     client = S3Client(bucket_name=bucket_name)
 
-    dt = datetime(2026, 10, 27, tzinfo=UTC)
+    dt = datetime(2026, 10, 27, tzinfo=SAUDI_TIMEZONE)
     s3_key = client.upload_parquet_records(
         records=sample_saudi_orders,
         source="postgres",
@@ -157,7 +158,7 @@ def test_upload_json_records_compressed(s3_env, sample_saudi_orders):
     bucket_name = s3_env["bucket"]
     client = S3Client(bucket_name=bucket_name)
 
-    dt = datetime(2026, 10, 27, tzinfo=UTC)
+    dt = datetime(2026, 10, 27, tzinfo=SAUDI_TIMEZONE)
     s3_key = client.upload_json_records(
         records=sample_saudi_orders,
         source="postgres",
@@ -204,7 +205,7 @@ def test_list_objects_and_check_existence(s3_env):
         records=records,
         source="operational_api",
         entity="payments",
-        partition_date=datetime(2026, 10, 27, tzinfo=UTC),
+        partition_date=datetime(2026, 10, 27, tzinfo=SAUDI_TIMEZONE),
     )
 
     assert client.object_exists(key=key) is True
@@ -236,7 +237,7 @@ def test_live_aws_s3_upload_and_read():
             "subtotal_halalas": 45000,
             "vat_halalas": 6750,
             "total_halalas": 51750,
-            "created_at": datetime.now(UTC).isoformat(),
+            "created_at": saudi_now().isoformat(),
         },
         {
             "order_id": "ORD-LIVE-SAUDI-002",
@@ -247,7 +248,7 @@ def test_live_aws_s3_upload_and_read():
             "subtotal_halalas": 28000,
             "vat_halalas": 4200,
             "total_halalas": 32200,
-            "created_at": datetime.now(UTC).isoformat(),
+            "created_at": saudi_now().isoformat(),
         },
     ]
 

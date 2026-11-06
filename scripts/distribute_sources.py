@@ -11,9 +11,10 @@ import argparse
 import os
 import random
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import openpyxl
 import pandas as pd
@@ -31,8 +32,9 @@ DATA_DIR = ROOT_DIR / "data"
 LOGISTICS_DIR = DATA_DIR / "logistics"
 CATALOGS_DIR = DATA_DIR / "catalogs"
 
-BASE_START_TS = datetime(2026, 10, 1, 0, 0, 0, tzinfo=UTC)
-BASE_END_TS = datetime(2026, 10, 28, 23, 59, 59, tzinfo=UTC)
+SAUDI_TZ = ZoneInfo("Asia/Riyadh")
+BASE_START_TS = datetime(2026, 10, 1, 0, 0, 0, tzinfo=SAUDI_TZ)
+BASE_END_TS = datetime(2026, 10, 28, 23, 59, 59, tzinfo=SAUDI_TZ)
 TIMELINE_SECONDS = int((BASE_END_TS - BASE_START_TS).total_seconds())
 
 

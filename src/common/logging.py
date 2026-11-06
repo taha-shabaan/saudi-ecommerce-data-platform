@@ -10,10 +10,9 @@ import json
 import logging
 import sys
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
-from src.common.timezone import format_ast
+from src.common.timezone import saudi_now
 
 # Keys that must never appear in raw application logs
 SENSITIVE_KEYS = {
@@ -49,10 +48,9 @@ class JSONFormatter(logging.Formatter):
     """Custom formatter producing structured JSON lines."""
 
     def format(self, record: logging.LogRecord) -> str:
-        now_utc = datetime.now(UTC)
+        now_ast = saudi_now()
         log_payload: dict[str, Any] = {
-            "timestamp": now_utc.isoformat(),
-            "timestamp_ast": format_ast(now_utc),
+            "timestamp": now_ast.isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),

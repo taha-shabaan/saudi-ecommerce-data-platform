@@ -1,6 +1,6 @@
 """Unit tests for Saudi Arabia timezone (Asia/Riyadh / AST) utilities and partition alignment."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.common.config import settings
@@ -11,8 +11,6 @@ from src.common.timezone import (
     get_saudi_partition_date,
     saudi_now,
     to_saudi_time,
-    to_utc,
-    utc_now,
 )
 
 
@@ -26,56 +24,43 @@ def test_saudi_timezone_constants():
     assert sample_dt.utcoffset() == timedelta(hours=3)
 
 
-def test_saudi_now_and_utc_now():
-    """Verify saudi_now and utc_now return timezone-aware timestamps with correct offsets."""
-    s_now = saudi_now()
-    u_now = utc_now()
-    assert s_now.tzinfo == SAUDI_TIMEZONE
-    assert u_now.tzinfo == UTC
-    diff = abs((to_utc(s_now) - u_now).total_seconds())
-    assert diff < 2.0
+def test_saudi_now():
+    """Verify saudi_now returns timezone-aware timestamps with Asia/Riyadh timezone."""
+    now_ast = saudi_now()
+    assert now_ast.tzinfo == SAUDI_TIMEZONE
+    assert now_ast.utcoffset() == timedelta(hours=3)
 
 
 def test_to_saudi_time_conversion():
-    """Verify conversion of UTC and naive timestamps to Asia/Riyadh."""
-    # 21:00 UTC on Oct 27 is 00:00 AST on Oct 28
-    utc_dt = datetime(2026, 10, 27, 21, 0, 0, tzinfo=UTC)
-    ast_dt = to_saudi_time(utc_dt)
+    """Verify conversion of timestamps to Asia/Riyadh timezone."""
+    # Naive timestamp assumes Saudi time by default
+    naive_dt = datetime(2026, 10, 28, 14, 30, 0)
+    ast_from_naive = to_saudi_time(naive_dt)
+    assert ast_from_naive.tzinfo == SAUDI_TIMEZONE
+    assert ast_from_naive.hour == 14
+    assert ast_from_naive.minute == 30
 
-    assert ast_dt.tzinfo == SAUDI_TIMEZONE
-    assert ast_dt.year == 2026
-    assert ast_dt.month == 10
-    assert ast_dt.day == 28
-    assert ast_dt.hour == 0
-    assert ast_dt.minute == 0
-
-
-def test_to_utc_conversion():
-    """Verify conversion of Asia/Riyadh timestamps to UTC."""
-    # 03:00 AST on Oct 28 is 00:00 UTC on Oct 28
-    ast_dt = datetime(2026, 10, 28, 3, 0, 0, tzinfo=SAUDI_TIMEZONE)
-    utc_dt = to_utc(ast_dt)
-
-    assert utc_dt.tzinfo == UTC
-    assert utc_dt.year == 2026
-    assert utc_dt.month == 10
-    assert utc_dt.day == 28
-    assert utc_dt.hour == 0
+    # Aware timestamp in another timezone converts accurately to Saudi time
+    dubai_tz = ZoneInfo("Asia/Dubai")  # Fixed GST (UTC+4, 1 hour ahead of Riyadh)
+    dubai_dt = datetime(2026, 10, 28, 12, 0, 0, tzinfo=dubai_tz)
+    ast_from_aware = to_saudi_time(dubai_dt)
+    assert ast_from_aware.tzinfo == SAUDI_TIMEZONE
+    assert ast_from_aware.hour == 11
 
 
 def test_format_ast():
     """Verify ISO-8601 formatting with AST offset (+03:00)."""
-    utc_dt = datetime(2026, 10, 28, 9, 30, 0, tzinfo=UTC)
-    ast_str = format_ast(utc_dt)
+    ast_dt = datetime(2026, 10, 28, 12, 30, 0, tzinfo=SAUDI_TIMEZONE)
+    ast_str = format_ast(ast_dt)
     assert ast_str == "2026-10-28T12:30:00+03:00"
 
 
 def test_get_saudi_partition_date_aligns_with_business_day():
     """Verify partition date calculation aligns with Saudi business calendar day."""
-    # Late night UTC (22:30 UTC on Oct 27) corresponds to next business day in Riyadh (01:30 AST on Oct 28)
-    utc_late = datetime(2026, 10, 27, 22, 30, 0, tzinfo=UTC)
-    saudi_dt = get_saudi_partition_date(utc_late)
+    ast_dt = datetime(2026, 10, 28, 1, 30, 0, tzinfo=SAUDI_TIMEZONE)
+    saudi_dt = get_saudi_partition_date(ast_dt)
 
+    assert saudi_dt.tzinfo == SAUDI_TIMEZONE
     assert saudi_dt.day == 28
     assert saudi_dt.month == 10
     assert saudi_dt.year == 2026
@@ -85,13 +70,12 @@ def test_s3_partition_keys_use_saudi_time():
     """Verify S3Client partition paths reflect Saudi Arabia operational date."""
     client = S3Client(bucket_name="test-bucket", region_name="eu-west-1")
 
-    # 22:00 UTC on Oct 27 is 01:00 AST on Oct 28
-    late_utc = datetime(2026, 10, 27, 22, 0, 0, tzinfo=UTC)
+    ast_dt = datetime(2026, 10, 28, 1, 0, 0, tzinfo=SAUDI_TIMEZONE)
     key = client.build_partition_key(
         source="logistics",
         entity="shipments",
         filename="batch.parquet",
-        partition_date=late_utc,
+        partition_date=ast_dt,
     )
 
     # Must partition under day=28 (Saudi Arabia business day)
